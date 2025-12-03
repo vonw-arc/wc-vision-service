@@ -58,42 +58,83 @@ function buildPrompt(extraContext = {}, estimateId) {
 const textFormatConfig = {
   format: {
     type: 'json_schema',
-    name: 'wc_foundation_summary',
-    schema: {
-      type: 'object',
-      properties: {
-        lot_info: {
-          type: 'object',
-          properties: {
-            lot_number: { type: 'string' },
-            block: { type: 'string' },
-            subdivision: { type: 'string' },
+    json_schema: {
+      name: 'wc_foundation_summary',
+      strict: true,
+      schema: {
+        type: 'object',
+        properties: {
+          lot_info: {
+            type: 'object',
+            properties: {
+              lot_number:  { type: 'string' },
+              block:       { type: 'string' },
+              subdivision: { type: 'string' },
+            },
+            required: ['lot_number', 'block', 'subdivision'],
+            additionalProperties: false,
           },
-          required: ['lot_number', 'block', 'subdivision'],
-          additionalProperties: false,
+
+          foundation_type: { type: 'string' },
+          garage_type:     { type: 'string' },
+          porch_count:     { type: 'integer' },
+          basement_notes:  { type: 'string' },
+
+          // Extra narrative field
+          structural_notes: { type: 'string' },
+
+          // 🔑 Estimation-ready numeric-ish data (still as strings for now)
+          estimation_data: {
+            type: 'object',
+            properties: {
+              basement_wall_height_ft:    { type: 'string' },
+              basement_wall_thickness_in: { type: 'string' },
+              basement_perimeter_ft:      { type: 'string' },
+              footing_width_in:           { type: 'string' },
+              footing_thickness_in:       { type: 'string' },
+              frost_depth_in:             { type: 'string' },
+              slab_thickness_in:          { type: 'string' },
+              concrete_strength_psi:      { type: 'string' },
+              garage_slab_sqft:           { type: 'string' },
+              basement_slab_sqft:         { type: 'string' },
+              porch_sqft_total:           { type: 'string' },
+              driveway_sqft:              { type: 'string' },
+              retaining_conditions:       { type: 'string' },
+              rebar_summary:              { type: 'string' },
+            },
+            required: [],                // all optional for now
+            additionalProperties: false,
+          },
+
+          unusual_items: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+
+          inspection_requirements: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+
+          code_references: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+
+          quick_summary: { type: 'string' },
         },
-        foundation_type: { type: 'string' },
-        garage_type: { type: 'string' },
-        porch_count: { type: 'integer' },
-        basement_notes: { type: 'string' },
-        unusual_items: {
-          type: 'array',
-          items: { type: 'string' },
-        },
-        quick_summary: { type: 'string' },
+        required: [
+          'lot_info',
+          'foundation_type',
+          'garage_type',
+          'porch_count',
+          'basement_notes',
+          'unusual_items',
+          'quick_summary',
+        ],
+        additionalProperties: false,
       },
-      required: [
-        'lot_info',
-        'foundation_type',
-        'garage_type',
-        'porch_count',
-        'basement_notes',
-        'unusual_items',
-        'quick_summary',
-      ],
-      additionalProperties: false,
     },
-    strict: true,
   },
 };
 
@@ -166,87 +207,10 @@ app.post('/analyze-plan', async (req, res) => {
   input: [
     {
       role: "user",
-      content: content,
+      content,
     },
   ],
-
-  text: {
-    format: "json_schema",
-    json_schema: {
-      name: "wc_foundation_summary",
-      strict: true,
-      schema: {
-        type: "object",
-        properties: {
-          lot_info: {
-            type: "object",
-            properties: {
-              lot_number:   { type: "string" },
-              block:        { type: "string" },
-              subdivision:  { type: "string" },
-            },
-            required: ["lot_number", "block", "subdivision"],
-            additionalProperties: false,
-          },
-
-          foundation_type: { type: "string" },
-          garage_type:     { type: "string" },
-          porch_count:     { type: "integer" },
-          basement_notes:  { type: "string" },
-
-          structural_notes: { type: "string" },
-
-          estimation_data: {
-            type: "object",
-            properties: {
-              basement_wall_height_ft:   { type: "string" },
-              basement_wall_thickness_in:{ type: "string" },
-              basement_perimeter_ft:     { type: "string" },
-              footing_width_in:          { type: "string" },
-              footing_thickness_in:      { type: "string" },
-              frost_depth_in:            { type: "string" },
-              slab_thickness_in:         { type: "string" },
-              concrete_strength_psi:     { type: "string" },
-              garage_slab_sqft:          { type: "string" },
-              basement_slab_sqft:        { type: "string" },
-              porch_sqft_total:          { type: "string" },
-              driveway_sqft:             { type: "string" },
-              retaining_conditions:      { type: "string" },
-              rebar_summary:             { type: "string" },
-            },
-            required: [],
-            additionalProperties: false,
-          },
-
-          unusual_items: {
-            type: "array",
-            items: { type: "string" },
-          },
-
-          inspection_requirements: {
-            type: "array",
-            items: { type: "string" },
-          },
-          code_references: {
-            type: "array",
-            items: { type: "string" },
-          },
-
-          quick_summary: { type: "string" },
-        },
-        required: [
-          "lot_info",
-          "foundation_type",
-          "garage_type",
-          "porch_count",
-          "basement_notes",
-          "unusual_items",
-          "quick_summary"
-        ],
-        additionalProperties: false,
-      }
-    }
-  }
+  text: textFormatConfig,  // ← use the schema you defined above
 });
 
 const jsonText = response.output_text;
