@@ -114,11 +114,19 @@ app.post('/analyze-plan', async (req, res) => {
     }
 
     // Decide if this is a PDF or an image
-    const lowerUrl = String(url).toLowerCase();
+        const lowerUrl = String(url).toLowerCase();
     const lowerType = (fileType || '').toLowerCase();
-    const isPdf =
-      lowerType === 'pdf' ||
-      /\.pdf(\?|$)/.test(lowerUrl);
+
+    const hasPdfExt   = /\.pdf(\?|$)/.test(lowerUrl);
+    const hasImgExt   = /\.(png|jpg|jpeg|gif|webp)(\?|$)/.test(lowerUrl);
+
+    let isPdf = (lowerType === 'pdf') || hasPdfExt;
+
+    // If there’s no clear image extension and no explicit type,
+    // default to PDF because 90–95% of your docs are PDFs.
+    if (!isPdf && !hasImgExt) {
+      isPdf = true;
+    }
 
     // 👇 Multimodal content: prompt + either file or image
     const content = [
