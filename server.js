@@ -24,29 +24,35 @@ function buildPrompt(extraContext = {}, estimateId) {
     builder,
     community,
     docType,
-  } = extraContext;
+  } = extraContext || {};
 
   return [
-    `You are a concrete and excavation foundation-plan assistant for Watren Concrete.`,
-    `You are reading either a foundation **image** or a multi-page **PDF** plan.`,
-    '',
+    `You are a senior concrete and excavation estimator for Watren Concrete.`,
+    `You are reading either a FOUNDATION PLAN IMAGE or a MULTI-PAGE FOUNDATION PDF.`,
+    ``,
+    `Your job:`,
+    `1) Carefully read ALL visible notes, schedules, and callouts.`,
+    `2) Extract SPECIFIC, ESTIMATION-READY DATA into the JSON schema fields provided.`,
+    `3) Avoid vague wording. When possible, include actual numbers (sizes, spacings, strengths).`,
+    ``,
+    `If an item truly is not present or cannot be read, leave that field as an empty string. Do NOT make up numbers.`,
+    ``,
+    `Context (may help you interpret the plan):`,
     `Estimate ID: ${estimateId || 'Unknown'}`,
-    project ? `Project: ${project}` : '',
-    address ? `Address: ${address}` : '',
-    builder ? `Builder: ${builder}` : '',
-    community ? `Community: ${community}` : '',
-    docType ? `Document type: ${docType}` : '',
-    '',
-    `Extract the key scope and risk details for our estimating pipeline, in a tight, JSON-friendly way.`,
-    `Focus on:`,
-    `- Lot info (lot #, block, subdivision)`,
-    `- Foundation type (N.S.F., slab on grade vs crawl vs basement, etc.)`,
-    `- Garage type (e.g. 2-car left, 3-car tandem, etc.)`,
-    `- Porches / exterior slabs count and any notes`,
-    `- Basement notes (height, slab notes, compaction / soils notes, etc.)`,
-    `- Unusual / risk items that affect cost, schedule, or coordination.`,
+    project   ? `Project: ${project}`       : '',
+    address   ? `Address: ${address}`       : '',
+    builder   ? `Builder: ${builder}`       : '',
+    community ? `Community: ${community}`   : '',
+    docType   ? `Document type: ${docType}` : '',
+    ``,
+    `Important:`,
+    `- Include any wall heights, slab thicknesses, footing sizes, and concrete strengths you can read.`,
+    `- Include key rebar sizes and spacings (e.g., "#4 @ 12\\" o.c. horiz / vert").`,
+    `- Note special features that affect cost (retaining conditions, turndowns, piers, thickened slabs, etc.).`,
+    `- If the subdivision name is visible anywhere, put it in lot_info.subdivision.`,
   ].filter(Boolean).join('\n');
 }
+
 
 // ✅ Structured Outputs config – CORRECT shape for Responses API
 const textFormatConfig = {
@@ -156,35 +162,112 @@ app.post('/analyze-plan', async (req, res) => {
     }
 
     const response = await client.responses.create({
-      model: 'gpt-4o-mini',               // ← supports text.format structured outputs
-      input: [
-        {
-          role: 'user',
-          content,
+  model: "gpt-4.1",
+  input: [
+    {
+      role: "user",
+      content: content,
+    },
+  ],
+
+  text: {
+    format: "json_schema",
+    json_schema: {
+      name: "wc_foundation_summary",
+      strict: true,
+      schema: {
+        type: "object",
+        properties: {
+          lot_info: {
+            type: "object",
+            properties: {
+              lot_number:   { type: "string" },
+              block:        { type: "string" },
+              subdivision:  { type: "string" },
+            },
+            required: ["lot_number", "block", "subdivision"],
+            additionalProperties: false,
+          },
+
+          foundation_type: { type: "string" },
+          garage_type:     { type: "string" },
+          porch_count:     { type: "integer" },
+          basement_notes:  { type: "string" },
+
+          structural_notes: { type: "string" },
+
+          estimation_data: {
+            type: "object",
+            properties: {
+              basement_wall_height_ft:   { type: "string" },
+              basement_wall_thickness_in:{ type: "string" },
+              basement_perimeter_ft:     { type: "string" },
+              footing_width_in:          { type: "string" },
+              footing_thickness_in:      { type: "string" },
+              frost_depth_in:            { type: "string" },
+              slab_thickness_in:         { type: "string" },
+              concrete_strength_psi:     { type: "string" },
+              garage_slab_sqft:          { type: "string" },
+              basement_slab_sqft:        { type: "string" },
+              porch_sqft_total:          { type: "string" },
+              driveway_sqft:             { type: "string" },
+              retaining_conditions:      { type: "string" },
+              rebar_summary:             { type: "string" },
+            },
+            required: [],
+            additionalProperties: false,
+          },
+
+          unusual_items: {
+            type: "array",
+            items: { type: "string" },
+          },
+
+          inspection_requirements: {
+            type: "array",
+            items: { type: "string" },
+          },
+          code_references: {
+            type: "array",
+            items: { type: "string" },
+          },
+
+          quick_summary: { type: "string" },
         },
-      ],
-      text: textFormatConfig,             // ← CORRECT place for json_schema now
-    });
-
-    // With text.format + json_schema, output_text will be valid JSON
-    const jsonText = response.output_text;
-    let parsed;
-    try {
-      parsed = JSON.parse(jsonText);
-    } catch (e) {
-      console.error('Failed to parse JSON from response.output_text:', e);
-      console.error('Raw output_text:', jsonText);
-      return res.status(500).json({
-        error: 'Vision service failed',
-        details: 'Could not parse JSON from model output.',
-      });
+        required: [
+          "lot_info",
+          "foundation_type",
+          "garage_type",
+          "porch_count",
+          "basement_notes",
+          "unusual_items",
+          "quick_summary"
+        ],
+        additionalProperties: false,
+      }
     }
+  }
+});
 
-    res.json({
-      success: true,
-      source: isPdf ? 'pdf' : 'image',
-      data: parsed,
-    });
+const jsonText = response.output_text;
+let parsed;
+
+try {
+  parsed = JSON.parse(jsonText);
+} catch (e) {
+  console.error("Failed to parse JSON schema output:", e);
+  console.error("Raw output_text:", jsonText);
+  return res.status(500).json({
+    error: "Vision service failed",
+    details: "Could not parse JSON output.",
+  });
+}
+
+res.json({
+  success: true,
+  source: isPdf ? "pdf" : "image",
+  data: parsed,
+});
   } catch (err) {
     console.error('Vision error:', err);
     res.status(500).json({
