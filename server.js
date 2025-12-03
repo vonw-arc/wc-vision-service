@@ -85,7 +85,7 @@ const textFormatConfig = {
         'unusual_items',
         'quick_summary',
       ],
-      additionalProperties: true,
+      additionalProperties: false,
     },
     strict: true,
   },
