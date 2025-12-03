@@ -58,8 +58,8 @@ function buildPrompt(extraContext = {}, estimateId) {
 const textFormatConfig = {
   format: {
     type: 'json_schema',
+    name: 'wc_foundation_summary',   // 👈 move name up here
     json_schema: {
-      name: 'wc_foundation_summary',
       strict: true,
       schema: {
         type: 'object',
@@ -80,10 +80,8 @@ const textFormatConfig = {
           porch_count:     { type: 'integer' },
           basement_notes:  { type: 'string' },
 
-          // Extra narrative field
           structural_notes: { type: 'string' },
 
-          // 🔑 Estimation-ready numeric-ish data (still as strings for now)
           estimation_data: {
             type: 'object',
             properties: {
@@ -102,7 +100,7 @@ const textFormatConfig = {
               retaining_conditions:       { type: 'string' },
               rebar_summary:              { type: 'string' },
             },
-            required: [],                // all optional for now
+            required: [],
             additionalProperties: false,
           },
 
