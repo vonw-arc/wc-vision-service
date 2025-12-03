@@ -8,40 +8,20 @@ const app = express();
 const port = process.env.PORT || 3000;
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 
-const client = new OpenAI();
-
 if (!process.env.OPENAI_API_KEY) {
   console.warn('Warning: OPENAI_API_KEY is not set. Vision calls will fail until you set it.');
 }
 
-const SYSTEM_PROMPT = `
-You are a VERY LITERAL plan-reading assistant for residential foundation bids for Watren Concrete.
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
-Core rules:
-- Your #1 job is to read what is printed on the plan, NOT to “fix” or reinterpret it.
-- When copying text like bar callouts, hardware notes, or special requirements,
-  COPY THEM EXACTLY as written (including odd abbreviations, punctuation, and spacing).
-  Examples: "420 BAR", "4EQ #4 @ 20' O.C.", "MST BAR USA", "NO SUBSTITUTIONS".
-- DO NOT spell-check or normalize technical terms. If the plan says "4EQ", do NOT change it.
-- If you truly cannot read a piece of text, use the string "unreadable" instead of guessing.
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
 
-Numeric details (VERY IMPORTANT):
-- Whenever they are clearly visible on the image/PDF, you MUST include:
-  - Basement wall height (e.g. "8'-0\" basement", "9'-0\" basement")
-  - Slab thickness (e.g. "4\" slab", "5\" slab")
-  - Any minimum depth to untreated wood or frost (e.g. "min 18\" to untreated wood")
-  - Any footing dimensions (e.g. "16\" x 8\" footing") if they are printed and readable
-- These numeric details should appear inside "basement_notes" or "unusual_items"
-  EXACTLY as they appear on the plan.
-
-Use of context:
-- Only use extra context (lot number, project, address, builder, community, doc type)
-  to understand what you’re looking at, NOT to infer or guess numeric values.
-
-Output:
-- Return ONLY a single JSON object that obeys the provided json_schema exactly.
-`;
-
+/**
+ * Build a focused prompt for foundation plans.
+ */
 function buildPrompt(extraContext = {}, estimateId) {
   const {
     project,
@@ -52,67 +32,86 @@ function buildPrompt(extraContext = {}, estimateId) {
   } = extraContext;
 
   return [
-    `You are reading either a foundation image or a multi-page PDF plan for a residential job.`,
-    '',
+    `You are a concrete and excavation foundation-plan assistant for Watren Concrete.`,
+    `You are reading either:`,
+    `  • a single-page or multi-page PDF plan, or`,
+    `  • a raster image (PNG/JPEG/etc.) of a foundation plan.`,
+    ``,
     `Estimate ID: ${estimateId || 'Unknown'}`,
-    project ? `Project: ${project}` : '',
-    address ? `Address: ${address}` : '',
-    builder ? `Builder: ${builder}` : '',
-    community ? `Community: ${community}` : '',
-    docType ? `Document type: ${docType}` : '',
-    '',
-    `Extract the key scope and risk details in a tight, JSON-friendly way.`,
-    `ALWAYS focus on numeric structural details when they are visible, especially:`,
-    `- Basement wall height (8', 9', etc.)`,
-    `- Slab thickness (4", 5", etc.)`,
-    `- Minimum depth to untreated wood / frost`,
-    `- Any footing sizes or similar dimensions`,
-    '',
-    `Put these numeric values inside "basement_notes" and/or "unusual_items" as plain text,`,
-    `copied exactly as printed on the plan.`,
-  ].filter(Boolean).join('\n');
+    project   ? `Project: ${project}`       : '',
+    address   ? `Address: ${address}`       : '',
+    builder   ? `Builder: ${builder}`       : '',
+    community ? `Community: ${community}`   : '',
+    docType   ? `Document type: ${docType}` : '',
+    ``,
+    `Your job: extract scope + risk info in a JSON-friendly way using the given schema.`,
+    ``,
+    `VERY IMPORTANT NUMERIC ACCURACY RULES:`,
+    `- Carefully read dimensions, bar sizes, spacing, basement heights, and slab thickness from the plan text.`,
+    `- If you see multiple values, choose the one clearly labeled as FINAL or TYPICAL for this plan.`,
+    `- If a value is unclear or missing, use an empty string "" and DO NOT invent numbers.`,
+    ``,
+    `Focus on:`,
+    `- Lot info (lot number, block, subdivision) if shown.`,
+    `- Foundation type (e.g., "N.S.F. foundation with slab on grade", "crawlspace", etc.).`,
+    `- Garage configuration (side, bay count, orientation if obvious).`,
+    `- Number of porches / stoops called out structurally.`,
+    `- Basement notes (height, slab thickness, compaction / soils notes, any special conditions).`,
+    `- Unusual or risk items (no-substitution notes, special inspection requirements, odd rebar patterns, special hardware).`,
+    ``,
+    `Return ONLY valid JSON that matches the schema. Do not include commentary outside JSON.`,
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
-// Shared JSON schema for output back to Sheets
-const foundationSchema = {
-  type: 'object',
-  properties: {
-    lot_info: {
+/**
+ * Shared JSON schema configuration for Responses API.
+ * This replaces the old `response_format` parameter.
+ */
+const jsonSchemaConfig = {
+  format: 'json_schema',
+  json_schema: {
+    name: 'wc_foundation_summary',
+    schema: {
       type: 'object',
       properties: {
-        lot_number: { type: 'string' },
-        block: { type: 'string' },
-        subdivision: { type: 'string' },
+        lot_info: {
+          type: 'object',
+          properties: {
+            lot_number: { type: 'string' },
+            block: { type: 'string' },
+            subdivision: { type: 'string' },
+          },
+          required: ['lot_number', 'block', 'subdivision'],
+          additionalProperties: false,
+        },
+        foundation_type: { type: 'string' },
+        garage_type: { type: 'string' },
+        porch_count: { type: 'integer' },
+        basement_notes: { type: 'string' },
+        unusual_items: {
+          type: 'array',
+          items: { type: 'string' },
+        },
+        quick_summary: { type: 'string' },
       },
-      required: ['lot_number', 'block', 'subdivision'],
-      additionalProperties: false,
+      required: [
+        'lot_info',
+        'foundation_type',
+        'garage_type',
+        'porch_count',
+        'basement_notes',
+        'unusual_items',
+        'quick_summary',
+      ],
+      additionalProperties: true,
     },
-    foundation_type: { type: 'string' },
-    garage_type: { type: 'string' },
-    porch_count: { type: 'integer' },
-    basement_notes: { type: 'string' },
-    unusual_items: {
-      type: 'array',
-      items: { type: 'string' },
-    },
-    quick_summary: { type: 'string' },
+    strict: true,
   },
-  required: [
-    'lot_info',
-    'foundation_type',
-    'garage_type',
-    'porch_count',
-    'basement_notes',
-    'unusual_items',
-    'quick_summary',
-  ],
-  additionalProperties: true,
 };
 
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-
-// Main endpoint – handles PDFs (multi-page) + images
+// Main endpoint – supports BOTH images and PDFs via Responses API
 app.post('/analyze-plan', async (req, res) => {
   try {
     const internalKey = req.headers['x-internal-key'];
@@ -122,13 +121,14 @@ app.post('/analyze-plan', async (req, res) => {
 
     const {
       estimateId,
+      imageUrl,
       fileUrl,
       fileType,
-      imageUrl,
       extraContext,
     } = req.body || {};
 
     const url = fileUrl || imageUrl;
+
     if (!url) {
       return res.status(400).json({ error: 'Missing file/image URL' });
     }
@@ -139,44 +139,42 @@ app.post('/analyze-plan', async (req, res) => {
       lowerType === 'pdf' ||
       /\.pdf(\?|$)/.test(lowerUrl);
 
+    const prompt = buildPrompt(extraContext || {}, estimateId);
+
+    // Build the content array for Responses API
     const content = [
       {
         type: 'input_text',
-        text: buildPrompt(extraContext || {}, estimateId),
+        text: prompt,
       },
     ];
 
     if (isPdf) {
-      // PDF path – Responses API pulls the PDF directly from the URL (all pages)
+      // ✅ PDF path – let the model fetch the PDF via URL
       content.push({
         type: 'input_file',
-        file_url: url,
+        file_url: url, // Responses API supports file_url here
       });
     } else {
-      // Image path – high detail for better reading
+      // ✅ Image path – NEW correct type and shape
       content.push({
-        type: 'input_image_url',
-        image_url: { url, detail: 'high' },
+        type: 'input_image',
+        image_url: url, // plain URL string, not { url: ... }
       });
     }
 
     const response = await client.responses.create({
-  model: 'gpt-4.1-mini',
-  input: [
-    {
-      role: 'user',
-      content,
-    },
-  ],
-  text: {
-    format: {
-      type: 'json_schema',
-      strict: true,
-      schema: foundationSchema,
-    },
-  },
-});
+      model: 'gpt-4.1-mini',
+      input: [
+        {
+          role: 'user',
+          content,
+        },
+      ],
+      text: jsonSchemaConfig,
+    });
 
+    // With json_schema + strict, output_text should be pure JSON text
     const jsonText = response.output_text;
     let parsed;
     try {
@@ -211,6 +209,3 @@ app.get('/', (_req, res) => {
 app.listen(port, () => {
   console.log(`wc-vision-service listening on port ${port}`);
 });
-
-
-
