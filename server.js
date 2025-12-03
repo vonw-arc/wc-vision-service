@@ -74,46 +74,39 @@ function buildPrompt(extraContext = {}, estimateId) {
 }
 
 // Shared JSON schema for output back to Sheets
-const responseFormat = {
-  type: 'json_schema',
-  json_schema: {
-    name: 'wc_foundation_summary',
-    schema: {
+const foundationSchema = {
+  type: 'object',
+  properties: {
+    lot_info: {
       type: 'object',
       properties: {
-        lot_info: {
-          type: 'object',
-          properties: {
-            lot_number: { type: 'string' },
-            block: { type: 'string' },
-            subdivision: { type: 'string' },
-          },
-          required: ['lot_number', 'block', 'subdivision'],
-          additionalProperties: false,
-        },
-        foundation_type: { type: 'string' },
-        garage_type: { type: 'string' },
-        porch_count: { type: 'integer' },
-        basement_notes: { type: 'string' },
-        unusual_items: {
-          type: 'array',
-          items: { type: 'string' },
-        },
-        quick_summary: { type: 'string' },
+        lot_number: { type: 'string' },
+        block: { type: 'string' },
+        subdivision: { type: 'string' },
       },
-      required: [
-        'lot_info',
-        'foundation_type',
-        'garage_type',
-        'porch_count',
-        'basement_notes',
-        'unusual_items',
-        'quick_summary',
-      ],
-      additionalProperties: true,
+      required: ['lot_number', 'block', 'subdivision'],
+      additionalProperties: false,
     },
-    strict: true,
+    foundation_type: { type: 'string' },
+    garage_type: { type: 'string' },
+    porch_count: { type: 'integer' },
+    basement_notes: { type: 'string' },
+    unusual_items: {
+      type: 'array',
+      items: { type: 'string' },
+    },
+    quick_summary: { type: 'string' },
   },
+  required: [
+    'lot_info',
+    'foundation_type',
+    'garage_type',
+    'porch_count',
+    'basement_notes',
+    'unusual_items',
+    'quick_summary',
+  ],
+  additionalProperties: true,
 };
 
 app.use(cors());
@@ -168,19 +161,21 @@ app.post('/analyze-plan', async (req, res) => {
     }
 
     const response = await client.responses.create({
-      model: 'gpt-4.1-mini',
-      input: [
-        {
-          role: 'system',
-          content: [{ type: 'input_text', text: SYSTEM_PROMPT }],
-        },
-        {
-          role: 'user',
-          content,
-        },
-      ],
-      response_format: responseFormat,
-    });
+  model: 'gpt-4.1-mini',
+  input: [
+    {
+      role: 'user',
+      content,
+    },
+  ],
+  text: {
+    format: {
+      type: 'json_schema',
+      strict: true,
+      schema: foundationSchema,
+    },
+  },
+});
 
     const jsonText = response.output_text;
     let parsed;
