@@ -12,16 +12,11 @@ if (!process.env.OPENAI_API_KEY) {
   console.warn('Warning: OPENAI_API_KEY is not set. Vision calls will fail until you set it.');
 }
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const client = new OpenAI();
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-/**
- * Build a focused prompt for foundation plans.
- */
 function buildPrompt(extraContext = {}, estimateId) {
   const {
     project,
@@ -33,45 +28,30 @@ function buildPrompt(extraContext = {}, estimateId) {
 
   return [
     `You are a concrete and excavation foundation-plan assistant for Watren Concrete.`,
-    `You are reading either:`,
-    `  • a single-page or multi-page PDF plan, or`,
-    `  • a raster image (PNG/JPEG/etc.) of a foundation plan.`,
-    ``,
+    `You are reading either a foundation **image** or a multi-page **PDF** plan.`,
+    '',
     `Estimate ID: ${estimateId || 'Unknown'}`,
-    project   ? `Project: ${project}`       : '',
-    address   ? `Address: ${address}`       : '',
-    builder   ? `Builder: ${builder}`       : '',
-    community ? `Community: ${community}`   : '',
-    docType   ? `Document type: ${docType}` : '',
-    ``,
-    `Your job: extract scope + risk info in a JSON-friendly way using the given schema.`,
-    ``,
-    `VERY IMPORTANT NUMERIC ACCURACY RULES:`,
-    `- Carefully read dimensions, bar sizes, spacing, basement heights, and slab thickness from the plan text.`,
-    `- If you see multiple values, choose the one clearly labeled as FINAL or TYPICAL for this plan.`,
-    `- If a value is unclear or missing, use an empty string "" and DO NOT invent numbers.`,
-    ``,
+    project ? `Project: ${project}` : '',
+    address ? `Address: ${address}` : '',
+    builder ? `Builder: ${builder}` : '',
+    community ? `Community: ${community}` : '',
+    docType ? `Document type: ${docType}` : '',
+    '',
+    `Extract the key scope and risk details for our estimating pipeline, in a tight, JSON-friendly way.`,
     `Focus on:`,
-    `- Lot info (lot number, block, subdivision) if shown.`,
-    `- Foundation type (e.g., "N.S.F. foundation with slab on grade", "crawlspace", etc.).`,
-    `- Garage configuration (side, bay count, orientation if obvious).`,
-    `- Number of porches / stoops called out structurally.`,
-    `- Basement notes (height, slab thickness, compaction / soils notes, any special conditions).`,
-    `- Unusual or risk items (no-substitution notes, special inspection requirements, odd rebar patterns, special hardware).`,
-    ``,
-    `Return ONLY valid JSON that matches the schema. Do not include commentary outside JSON.`,
-  ]
-    .filter(Boolean)
-    .join('\n');
+    `- Lot info (lot #, block, subdivision)`,
+    `- Foundation type (N.S.F., slab on grade vs crawl vs basement, etc.)`,
+    `- Garage type (e.g. 2-car left, 3-car tandem, etc.)`,
+    `- Porches / exterior slabs count and any notes`,
+    `- Basement notes (height, slab notes, compaction / soils notes, etc.)`,
+    `- Unusual / risk items that affect cost, schedule, or coordination.`,
+  ].filter(Boolean).join('\n');
 }
 
-/**
- * Shared JSON schema configuration for Responses API.
- * This replaces the old `response_format` parameter.
- */
-const jsonSchemaConfig = {
-  format: 'json_schema',
-  json_schema: {
+// ✅ Structured Outputs config – CORRECT shape for Responses API
+const textFormatConfig = {
+  format: {
+    type: 'json_schema',
     name: 'wc_foundation_summary',
     schema: {
       type: 'object',
@@ -111,7 +91,7 @@ const jsonSchemaConfig = {
   },
 };
 
-// Main endpoint – supports BOTH images and PDFs via Responses API
+// Main endpoint – supports BOTH images and PDFs
 app.post('/analyze-plan', async (req, res) => {
   try {
     const internalKey = req.headers['x-internal-key'];
@@ -133,48 +113,47 @@ app.post('/analyze-plan', async (req, res) => {
       return res.status(400).json({ error: 'Missing file/image URL' });
     }
 
+    // Decide if this is a PDF or an image
     const lowerUrl = String(url).toLowerCase();
     const lowerType = (fileType || '').toLowerCase();
     const isPdf =
       lowerType === 'pdf' ||
       /\.pdf(\?|$)/.test(lowerUrl);
 
-    const prompt = buildPrompt(extraContext || {}, estimateId);
-
-    // Build the content array for Responses API
+    // 👇 Multimodal content: prompt + either file or image
     const content = [
       {
         type: 'input_text',
-        text: prompt,
+        text: buildPrompt(extraContext, estimateId),
       },
     ];
 
     if (isPdf) {
-      // ✅ PDF path – let the model fetch the PDF via URL
+      // ✅ PDF: Responses API pulls the PDF directly from the URL (all pages)
       content.push({
         type: 'input_file',
-        file_url: url, // Responses API supports file_url here
+        file_url: url,
       });
     } else {
-      // ✅ Image path – NEW correct type and shape
+      // ✅ Image: normal vision path
       content.push({
         type: 'input_image',
-        image_url: url, // plain URL string, not { url: ... }
+        image_url: url,
       });
     }
 
     const response = await client.responses.create({
-      model: 'gpt-4.1-mini',
+      model: 'gpt-4o-mini',               // ← supports text.format structured outputs
       input: [
         {
           role: 'user',
           content,
         },
       ],
-      text: jsonSchemaConfig,
+      text: textFormatConfig,             // ← CORRECT place for json_schema now
     });
 
-    // With json_schema + strict, output_text should be pure JSON text
+    // With text.format + json_schema, output_text will be valid JSON
     const jsonText = response.output_text;
     let parsed;
     try {
