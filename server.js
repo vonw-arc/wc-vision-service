@@ -8,6 +8,27 @@ const app = express();
 const port = process.env.PORT || 3000;
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 
+const SYSTEM_PROMPT = `
+You are a VERY LITERAL plan-reading assistant for residential foundation bids for Watren Concrete.
+
+Rules:
+- Your #1 job is to read what is printed on the plan, NOT to “fix” or reinterpret it.
+- When copying text like bar callouts, hardware notes, or special requirements,
+  COPY THEM EXACTLY as written (including odd abbreviations, punctuation, and spacing).
+  Examples: "420 BAR", "4EQ #4 @ 20' O.C.", "MST BAR USA", "NO SUBSTITUTIONS".
+- DO NOT spell-check or normalize technical terms. If the plan says "4EQ", do NOT change it.
+- If you truly cannot read a piece of text, use the string "unreadable" instead of guessing.
+- Be especially careful with:
+  - rebar sizes and spacing
+  - proprietary products and "no substitutions" notes
+  - special inspections or soils engineer requirements
+- Only use extra context (lot number, project, address, etc.) to understand the situation;
+  NEVER use it to guess values that you can’t clearly read on the image or PDF.
+
+Output:
+Return ONLY a single JSON object that obeys the provided json_schema exactly.
+`;
+
 if (!process.env.OPENAI_API_KEY) {
   console.warn('Warning: OPENAI_API_KEY is not set. Vision calls will fail until you set it.');
 }
@@ -129,23 +150,34 @@ app.post('/analyze-plan', async (req, res) => {
         file_url: url,
       });
     } else {
-      // ✅ Image path – what you already had working
-      content.push({
-        type: 'input_image_url',
-        image_url: { url },
-      });
-    }
+  // ✅ Image path – request high detail for better text reading
+  content.push({
+    type: 'input_image_url',
+    image_url: { url, detail: 'high' },
+  });
+}
+
 
     const response = await client.responses.create({
-      model: 'gpt-4.1-mini',
-      input: [
+  model: 'gpt-4.1-mini',
+  input: [
+    {
+      role: 'system',
+      content: [
         {
-          role: 'user',
-          content,
+          type: 'input_text',
+          text: SYSTEM_PROMPT,
         },
       ],
-      response_format: responseFormat,
-    });
+    },
+    {
+      role: 'user',
+      content,
+    },
+  ],
+  response_format: responseFormat,
+});
+
 
     // With json_schema + strict, output_text will be the JSON payload
     const jsonText = response.output_text;
