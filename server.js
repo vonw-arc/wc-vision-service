@@ -114,19 +114,24 @@ app.post('/analyze-plan', async (req, res) => {
     }
 
     // Decide if this is a PDF or an image
-        const lowerUrl = String(url).toLowerCase();
+    const lowerUrl  = String(url).toLowerCase();
     const lowerType = (fileType || '').toLowerCase();
 
-    const hasPdfExt   = /\.pdf(\?|$)/.test(lowerUrl);
-    const hasImgExt   = /\.(png|jpg|jpeg|gif|webp)(\?|$)/.test(lowerUrl);
+    const hasPdfExt = /\.pdf(\?|$)/.test(lowerUrl);
+    const hasImgExt = /\.(png|jpg|jpeg|gif|webp)(\?|$)/.test(lowerUrl);
 
-    let isPdf = (lowerType === 'pdf') || hasPdfExt;
+    const isExplicitPdfType  = lowerType === 'pdf';
+    const isExplicitImgType  = ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(lowerType);
 
-    // If there’s no clear image extension and no explicit type,
-    // default to PDF because 90–95% of your docs are PDFs.
-    if (!isPdf && !hasImgExt) {
+    // Start with explicit hints and URL extension
+    let isPdf = isExplicitPdfType || hasPdfExt;
+
+    // 🚫 IMPORTANT: if we *know* it's an image type, NEVER flip it to PDF
+    if (!isPdf && !hasImgExt && !isExplicitImgType) {
+      // Ambiguous URL + no explicit type → assume PDF (your common case)
       isPdf = true;
     }
+
 
     // 👇 Multimodal content: prompt + either file or image
     const content = [
