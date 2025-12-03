@@ -8,6 +8,12 @@ const app = express();
 const port = process.env.PORT || 3000;
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 
+const client = new OpenAI();
+
+if (!process.env.OPENAI_API_KEY) {
+  console.warn('Warning: OPENAI_API_KEY is not set. Vision calls will fail until you set it.');
+}
+
 const SYSTEM_PROMPT = `
 You are a VERY LITERAL plan-reading assistant for residential foundation bids for Watren Concrete.
 
@@ -27,7 +33,6 @@ Numeric details (VERY IMPORTANT):
   - Any footing dimensions (e.g. "16\" x 8\" footing") if they are printed and readable
 - These numeric details should appear inside "basement_notes" or "unusual_items"
   EXACTLY as they appear on the plan.
-- Never invent numeric values. If a number is not visible or not readable, OMIT it rather than guessing.
 
 Use of context:
 - Only use extra context (lot number, project, address, builder, community, doc type)
@@ -36,15 +41,6 @@ Use of context:
 Output:
 - Return ONLY a single JSON object that obeys the provided json_schema exactly.
 `;
-
-if (!process.env.OPENAI_API_KEY) {
-  console.warn('Warning: OPENAI_API_KEY is not set. Vision calls will fail until you set it.');
-}
-
-const client = new OpenAI();
-
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
 
 function buildPrompt(extraContext = {}, estimateId) {
   const {
@@ -71,7 +67,7 @@ function buildPrompt(extraContext = {}, estimateId) {
     `- Slab thickness (4", 5", etc.)`,
     `- Minimum depth to untreated wood / frost`,
     `- Any footing sizes or similar dimensions`,
-    ``,
+    '',
     `Put these numeric values inside "basement_notes" and/or "unusual_items" as plain text,`,
     `copied exactly as printed on the plan.`,
   ].filter(Boolean).join('\n');
@@ -120,7 +116,10 @@ const responseFormat = {
   },
 };
 
-// Main endpoint – now supports BOTH images and PDFs
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+
+// Main endpoint – handles PDFs (multi-page) + images
 app.post('/analyze-plan', async (req, res) => {
   try {
     const internalKey = req.headers['x-internal-key'];
@@ -130,19 +129,17 @@ app.post('/analyze-plan', async (req, res) => {
 
     const {
       estimateId,
-      imageUrl,
       fileUrl,
       fileType,
+      imageUrl,
       extraContext,
     } = req.body || {};
 
     const url = fileUrl || imageUrl;
-
     if (!url) {
       return res.status(400).json({ error: 'Missing file/image URL' });
     }
 
-    // Decide if this is a PDF or an image
     const lowerUrl = String(url).toLowerCase();
     const lowerType = (fileType || '').toLowerCase();
     const isPdf =
@@ -152,47 +149,39 @@ app.post('/analyze-plan', async (req, res) => {
     const content = [
       {
         type: 'input_text',
-        text: buildPrompt(extraContext, estimateId),
+        text: buildPrompt(extraContext || {}, estimateId),
       },
     ];
 
     if (isPdf) {
-      // ✅ PDF path – Responses API pulls the PDF directly from the URL (all pages)
+      // PDF path – Responses API pulls the PDF directly from the URL (all pages)
       content.push({
         type: 'input_file',
         file_url: url,
       });
     } else {
-  // ✅ Image path – request high detail for better text reading
-  content.push({
-    type: 'input_image_url',
-    image_url: { url, detail: 'high' },
-  });
-}
-
+      // Image path – high detail for better reading
+      content.push({
+        type: 'input_image_url',
+        image_url: { url, detail: 'high' },
+      });
+    }
 
     const response = await client.responses.create({
-  model: 'gpt-4.1-mini',
-  input: [
-    {
-      role: 'system',
-      content: [
+      model: 'gpt-4.1-mini',
+      input: [
         {
-          type: 'input_text',
-          text: SYSTEM_PROMPT,
+          role: 'system',
+          content: [{ type: 'input_text', text: SYSTEM_PROMPT }],
+        },
+        {
+          role: 'user',
+          content,
         },
       ],
-    },
-    {
-      role: 'user',
-      content,
-    },
-  ],
-  response_format: responseFormat,
-});
+      response_format: responseFormat,
+    });
 
-
-    // With json_schema + strict, output_text will be the JSON payload
     const jsonText = response.output_text;
     let parsed;
     try {
@@ -227,5 +216,6 @@ app.get('/', (_req, res) => {
 app.listen(port, () => {
   console.log(`wc-vision-service listening on port ${port}`);
 });
+
 
 
