@@ -31,12 +31,11 @@ function buildPrompt(extraContext = {}, estimateId) {
     `You are reading either a FOUNDATION PLAN IMAGE or a MULTI-PAGE FOUNDATION PDF.`,
     ``,
     `Your job:`,
-    `1) Carefully read ALL visible notes, schedules, and callouts on the plan.`,
-    `2) Extract SPECIFIC, ESTIMATION-READY DATA into the JSON fields described below.`,
+    `1) Carefully read ALL visible notes, schedules, and callouts.`,
+    `2) Extract SPECIFIC, ESTIMATION-READY DATA into the JSON schema fields provided.`,
     `3) Avoid vague wording. When possible, include actual numbers (sizes, spacings, strengths).`,
     ``,
-    `If an item truly is not present or cannot be read, leave that field as an empty string or an empty array.`,
-    `Do NOT invent or guess numbers.`,
+    `If an item truly is not present or cannot be read, leave that field as an empty string. Do NOT make up numbers.`,
     ``,
     `Context (may help you interpret the plan):`,
     `Estimate ID: ${estimateId || 'Unknown'}`,
@@ -46,74 +45,15 @@ function buildPrompt(extraContext = {}, estimateId) {
     community ? `Community: ${community}`   : '',
     docType   ? `Document type: ${docType}` : '',
     ``,
-    `IMPORTANT DATA TO PULL OUT:`,
-    `- Lot info: lot number, block, subdivision (if the subdivision/filer name is visible anywhere).`,
-    `- Foundation type: e.g. "N.S.F. foundation with slab on grade", "Standard basement", etc.`,
-    `- Garage type: e.g. "2-car left", "3-car tandem right", etc.`,
-    `- Porch count: how many porches or exterior slabs are clearly shown/called out.`,
-    `- Basement notes: wall heights, slab thicknesses, footing sizes, concrete strengths, etc.`,
-    `- Structural notes: any general structural/engineering notes that affect how we pour or form.`,
-    `- Estimation data: numeric-ish values as strings:`,
-    `  • basement_wall_height_ft`,
-    `  • basement_wall_thickness_in`,
-    `  • basement_perimeter_ft`,
-    `  • footing_width_in`,
-    `  • footing_thickness_in`,
-    `  • frost_depth_in`,
-    `  • slab_thickness_in`,
-    `  • concrete_strength_psi`,
-    `  • garage_slab_sqft`,
-    `  • basement_slab_sqft`,
-    `  • porch_sqft_total`,
-    `  • driveway_sqft`,
-    `  • retaining_conditions (short description)`,
-    `  • rebar_summary (summary of main bar sizes/spacings)`,
-    `- Unusual items: anything that is non-standard or that could be a risk, change order, or cost driver.`,
-    `- Inspection requirements: any special inspections required (e.g., open hole inspection, rebar inspection, etc.).`,
-    `- Code references: any explicit building code or design standard references (e.g., "2021 IRC").`,
-    `- Quick summary: 1–2 sentences summarizing the overall foundation scope in plain English.`,
-    ``,
-    `OUTPUT FORMAT (IMPORTANT):`,
-    `Return ONLY a single JSON object, no extra commentary, in this exact structure:`,
-    ``,
-    `{
-      "lot_info": {
-        "lot_number": "",
-        "block": "",
-        "subdivision": ""
-      },
-      "foundation_type": "",
-      "garage_type": "",
-      "porch_count": 0,
-      "basement_notes": "",
-      "structural_notes": "",
-      "estimation_data": {
-        "basement_wall_height_ft": "",
-        "basement_wall_thickness_in": "",
-        "basement_perimeter_ft": "",
-        "footing_width_in": "",
-        "footing_thickness_in": "",
-        "frost_depth_in": "",
-        "slab_thickness_in": "",
-        "concrete_strength_psi": "",
-        "garage_slab_sqft": "",
-        "basement_slab_sqft": "",
-        "porch_sqft_total": "",
-        "driveway_sqft": "",
-        "retaining_conditions": "",
-        "rebar_summary": ""
-      },
-      "unusual_items": [],
-      "inspection_requirements": [],
-      "code_references": [],
-      "quick_summary": ""
-    }`,
-    ``,
-    `Only change the values. Keep all keys exactly as written. Do NOT wrap this JSON in backticks or any explanation.`,
+    `Important:`,
+    `- Include any wall heights, slab thicknesses, footing sizes, and concrete strengths you can read.`,
+    `- Include key rebar sizes and spacings (e.g., "#4 @ 12\\" o.c. horiz / vert").`,
+    `- Note special features that affect cost (retaining conditions, turndowns, piers, thickened slabs, etc.).`,
+    `- If the subdivision name is visible anywhere, put it in lot_info.subdivision.`,
   ].filter(Boolean).join('\n');
 }
 
-// Main endpoint – supports BOTH images and PDFs
+// ---- MAIN ENDPOINT: supports BOTH images and PDFs ----
 app.post('/analyze-plan', async (req, res) => {
   try {
     const internalKey = req.headers['x-internal-key'];
@@ -147,12 +87,13 @@ app.post('/analyze-plan', async (req, res) => {
 
     let isPdf = isExplicitPdfType || hasPdfExt;
 
-    // If it's not clearly image and not clearly pdf by extension, default to PDF (your common case)
+    // If we *know* it's an image, never force it to PDF.
     if (!isPdf && !hasImgExt && !isExplicitImgType) {
+      // Ambiguous URL (your usual case from Drive) → assume PDF
       isPdf = true;
     }
 
-    // 👇 Multimodal content: prompt + either file or image
+    // Multimodal content: system-like prompt + either file or image
     const content = [
       {
         type: 'input_text',
@@ -161,13 +102,13 @@ app.post('/analyze-plan', async (req, res) => {
     ];
 
     if (isPdf) {
-      // ✅ PDF: Responses API pulls the PDF directly from the URL (all pages)
+      // PDF: Responses API pulls the PDF directly
       content.push({
         type: 'input_file',
         file_url: url,
       });
     } else {
-      // ✅ Image: normal vision path
+      // Image: normal vision path
       content.push({
         type: 'input_image',
         image_url: url,
@@ -183,18 +124,112 @@ app.post('/analyze-plan', async (req, res) => {
         },
       ],
       text: {
-        // No schema gymnastics—just "return JSON"
-        format: 'json',
+        format: {
+          type: 'json_schema',
+          name: 'wc_foundation_summary',
+          strict: true,
+          schema: {
+            type: 'object',
+            properties: {
+              lot_info: {
+                type: 'object',
+                properties: {
+                  lot_number:  { type: 'string' },
+                  block:       { type: 'string' },
+                  subdivision: { type: 'string' },
+                },
+                required: ['lot_number', 'block', 'subdivision'],
+                additionalProperties: false,
+              },
+
+              foundation_type: { type: 'string' },
+              garage_type:     { type: 'string' },
+              porch_count:     { type: 'integer' },
+              basement_notes:  { type: 'string' },
+
+              structural_notes: { type: 'string' },
+
+              estimation_data: {
+                type: 'object',
+                properties: {
+                  basement_wall_height_ft:    { type: 'string' },
+                  basement_wall_thickness_in: { type: 'string' },
+                  basement_perimeter_ft:      { type: 'string' },
+                  footing_width_in:           { type: 'string' },
+                  footing_thickness_in:       { type: 'string' },
+                  frost_depth_in:             { type: 'string' },
+                  slab_thickness_in:          { type: 'string' },
+                  concrete_strength_psi:      { type: 'string' },
+                  garage_slab_sqft:           { type: 'string' },
+                  basement_slab_sqft:         { type: 'string' },
+                  porch_sqft_total:           { type: 'string' },
+                  driveway_sqft:              { type: 'string' },
+                  retaining_conditions:       { type: 'string' },
+                  rebar_summary:              { type: 'string' },
+                },
+                // With strict JSON schema in this API, "required" must list *all* properties
+                required: [
+                  'basement_wall_height_ft',
+                  'basement_wall_thickness_in',
+                  'basement_perimeter_ft',
+                  'footing_width_in',
+                  'footing_thickness_in',
+                  'frost_depth_in',
+                  'slab_thickness_in',
+                  'concrete_strength_psi',
+                  'garage_slab_sqft',
+                  'basement_slab_sqft',
+                  'porch_sqft_total',
+                  'driveway_sqft',
+                  'retaining_conditions',
+                  'rebar_summary',
+                ],
+                additionalProperties: false,
+              },
+
+              unusual_items: {
+                type: 'array',
+                items: { type: 'string' },
+              },
+
+              inspection_requirements: {
+                type: 'array',
+                items: { type: 'string' },
+              },
+
+              code_references: {
+                type: 'array',
+                items: { type: 'string' },
+              },
+
+              quick_summary: { type: 'string' },
+            },
+            // Same deal here: required must include every key in properties
+            required: [
+              'lot_info',
+              'foundation_type',
+              'garage_type',
+              'porch_count',
+              'basement_notes',
+              'structural_notes',
+              'estimation_data',
+              'unusual_items',
+              'inspection_requirements',
+              'code_references',
+              'quick_summary',
+            ],
+            additionalProperties: false,
+          },
+        },
       },
     });
 
     const jsonText = response.output_text;
     let parsed;
-
     try {
       parsed = JSON.parse(jsonText);
     } catch (e) {
-      console.error('Failed to parse JSON output:', e);
+      console.error('Failed to parse JSON schema output:', e);
       console.error('Raw output_text:', jsonText);
       return res.status(500).json({
         error: 'Vision service failed',
