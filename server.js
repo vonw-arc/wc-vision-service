@@ -53,102 +53,110 @@ function buildPrompt(extraContext = {}, estimateId) {
   ].filter(Boolean).join('\n');
 }
 
-
-// ✅ Structured Outputs config – CORRECT shape for Responses API
+// ✅ Structured Outputs config – CORRECT shape for strict schema
 const textFormatConfig = {
   format: {
-    type: "json_schema",
-    name: "wc_foundation_summary",
-    schema: {
-      type: "object",
-      properties: {
-        lot_info: {
-          type: "object",
-          properties: {
-            lot_number:  { type: "string" },
-            block:       { type: "string" },
-            subdivision: { type: "string" },
+    type: 'json_schema',
+    json_schema: {
+      name: 'wc_foundation_summary',
+      strict: true,
+      schema: {
+        type: 'object',
+        properties: {
+          lot_info: {
+            type: 'object',
+            properties: {
+              lot_number:  { type: 'string' },
+              block:       { type: 'string' },
+              subdivision: { type: 'string' },
+            },
+            required: ['lot_number', 'block', 'subdivision'],
+            additionalProperties: false,
           },
-          required: ["lot_number", "block", "subdivision"],
-          additionalProperties: false,
-        },
 
-        foundation_type: { type: "string" },
-        garage_type:     { type: "string" },
-        porch_count:     { type: "integer" },
-        basement_notes:  { type: "string" },
+          foundation_type: { type: 'string' },
+          garage_type:     { type: 'string' },
+          porch_count:     { type: 'integer' },
+          basement_notes:  { type: 'string' },
 
-        structural_notes: { type: "string" },
+          // Extra narrative field
+          structural_notes: { type: 'string' },
 
-        estimation_data: {
-          type: "object",
-          properties: {
-            basement_wall_height_ft:    { type: "string" },
-            basement_wall_thickness_in: { type: "string" },
-            basement_perimeter_ft:      { type: "string" },
-            footing_width_in:           { type: "string" },
-            footing_thickness_in:       { type: "string" },
-            frost_depth_in:             { type: "string" },
-            slab_thickness_in:          { type: "string" },
-            concrete_strength_psi:      { type: "string" },
-            garage_slab_sqft:           { type: "string" },
-            basement_slab_sqft:         { type: "string" },
-            porch_sqft_total:           { type: "string" },
-            driveway_sqft:              { type: "string" },
-            retaining_conditions:       { type: "string" },
-            rebar_summary:              { type: "string" },
+          // 🔑 Estimation-ready numeric-ish data (still as strings for now)
+          estimation_data: {
+            type: 'object',
+            properties: {
+              basement_wall_height_ft:    { type: 'string' },
+              basement_wall_thickness_in: { type: 'string' },
+              basement_perimeter_ft:      { type: 'string' },
+              footing_width_in:           { type: 'string' },
+              footing_thickness_in:       { type: 'string' },
+              frost_depth_in:             { type: 'string' },
+              slab_thickness_in:          { type: 'string' },
+              concrete_strength_psi:      { type: 'string' },
+              garage_slab_sqft:           { type: 'string' },
+              basement_slab_sqft:         { type: 'string' },
+              porch_sqft_total:           { type: 'string' },
+              driveway_sqft:              { type: 'string' },
+              retaining_conditions:       { type: 'string' },
+              rebar_summary:              { type: 'string' },
+            },
+            // 👇 strict mode wants EVERY key listed here
+            required: [
+              'basement_wall_height_ft',
+              'basement_wall_thickness_in',
+              'basement_perimeter_ft',
+              'footing_width_in',
+              'footing_thickness_in',
+              'frost_depth_in',
+              'slab_thickness_in',
+              'concrete_strength_psi',
+              'garage_slab_sqft',
+              'basement_slab_sqft',
+              'porch_sqft_total',
+              'driveway_sqft',
+              'retaining_conditions',
+              'rebar_summary',
+            ],
+            additionalProperties: false,
           },
-          // 🔥 strict mode demands that required includes *every* key in properties
-          required: [
-            "basement_wall_height_ft",
-            "basement_wall_thickness_in",
-            "basement_perimeter_ft",
-            "footing_width_in",
-            "footing_thickness_in",
-            "frost_depth_in",
-            "slab_thickness_in",
-            "concrete_strength_psi",
-            "garage_slab_sqft",
-            "basement_slab_sqft",
-            "porch_sqft_total",
-            "driveway_sqft",
-            "retaining_conditions",
-            "rebar_summary",
-          ],
-          additionalProperties: false,
+
+          unusual_items: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+
+          inspection_requirements: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+
+          code_references: {
+            type: 'array',
+            items: { type: 'string' },
+          },
+
+          quick_summary: { type: 'string' },
         },
 
-        unusual_items: {
-          type: "array",
-          items: { type: "string" },
-        },
+        // 👇 strict mode wants EVERY top-level key listed here
+        required: [
+          'lot_info',
+          'foundation_type',
+          'garage_type',
+          'porch_count',
+          'basement_notes',
+          'structural_notes',
+          'estimation_data',
+          'unusual_items',
+          'inspection_requirements',
+          'code_references',
+          'quick_summary',
+        ],
 
-        inspection_requirements: {
-          type: "array",
-          items: { type: "string" },
-        },
-
-        code_references: {
-          type: "array",
-          items: { type: "string" },
-        },
-
-        quick_summary: { type: "string" },
+        additionalProperties: false,
       },
-      required: [
-  "lot_info",
-  "foundation_type",
-  "garage_type",
-  "porch_count",
-  "basement_notes",
-  "structural_notes",   // 👈 add this line
-  "unusual_items",
-  "quick_summary",
-
-      ],
-      additionalProperties: false,
     },
-    strict: true,
   },
 };
 
