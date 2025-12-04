@@ -136,13 +136,15 @@ const textFormatConfig = {
         quick_summary: { type: "string" },
       },
       required: [
-        "lot_info",
-        "foundation_type",
-        "garage_type",
-        "porch_count",
-        "basement_notes",
-        "unusual_items",
-        "quick_summary",
+  "lot_info",
+  "foundation_type",
+  "garage_type",
+  "porch_count",
+  "basement_notes",
+  "structural_notes",   // 👈 add this line
+  "unusual_items",
+  "quick_summary",
+
       ],
       additionalProperties: false,
     },
