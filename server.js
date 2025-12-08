@@ -224,7 +224,7 @@ app.post('/analyze-plan', async (req, res) => {
 
               structural_notes: { type: 'string' },
 
-               estimation_data: {
+                             estimation_data: {
                 type: 'object',
                 properties: {
                   // Existing foundation-focused fields
@@ -264,29 +264,6 @@ app.post('/analyze-plan', async (req, res) => {
                   foundation_wall_total_lf:    { type: 'string' },
                   // free-form notes about options / grading conditions / assumptions
                   plot_grading_notes:          { type: 'string' },
-
-                  // OPTIONAL multi-unit (townhome) support (will just be [] when not used)
-                  multi_unit_services: {
-                    type: 'array',
-                    items: {
-                      type: 'object',
-                      properties: {
-                        unit_id:                     { type: 'string' },
-                        water_service_length_ft:     { type: 'string' },
-                        water_service_length_method: { type: 'string' },
-                        sewer_service_length_ft:     { type: 'string' },
-                        sewer_service_length_method: { type: 'string' },
-                      },
-                      required: [
-                        'unit_id',
-                        'water_service_length_ft',
-                        'water_service_length_method',
-                        'sewer_service_length_ft',
-                        'sewer_service_length_method',
-                      ],
-                      additionalProperties: false,
-                    },
-                  },
                 },
                 required: [
                   // existing required fields
@@ -316,13 +293,9 @@ app.post('/analyze-plan', async (req, res) => {
                   'top_of_foundation_elev_ft',
                   'foundation_wall_total_lf',
                   'plot_grading_notes',
-
-                  // multi-unit list is required as a key, but can just be an empty array
-                  'multi_unit_services',
                 ],
                 additionalProperties: false,
               },
-
         },
       },
     });
