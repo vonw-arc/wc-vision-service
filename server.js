@@ -45,22 +45,29 @@ function buildPrompt(extraContext = {}, estimateId) {
         `1) Carefully read ALL visible notes, schedules, callouts, dimension strings, and scale/graphic bars on the plot/grading plan.`,
         `2) Extract SPECIFIC, ESTIMATION-READY DATA into the JSON schema fields provided.`,
         `3) Focus especially on:`,
-        `   - Water service route and length from meter pit to house (estimation_data.water_service_length_ft).`,
-        `   - Sanitary sewer route and length from stub to house (estimation_data.sewer_service_length_ft).`,
+        `   - Water service route and length from meter pit (W) to house (estimation_data.water_service_length_ft).`,
+        `   - Sanitary sewer route and length from stub (S) to house (estimation_data.sewer_service_length_ft).`,
         `   - Lot area (estimation_data.lot_area_sqft).`,
         `   - House footprint area (estimation_data.house_footprint_area_sqft).`,
         `   - Grading area = lot area minus house footprint (estimation_data.grading_area_sqft) when both are known.`,
         `   - Top of foundation elevation (estimation_data.top_of_foundation_elev_ft).`,
         `   - Total foundation wall linear footage if reasonably determinable (estimation_data.foundation_wall_total_lf).`,
-        `   - Any notable options or grading-related conditions (estimation_data.plot_grading_notes).`,
+        `   - Any notable options or grading-related conditions and assumptions (estimation_data.plot_grading_notes).`,
         ``,
-        `Measurement rules (very important):`,
-        `- PREFER dimension text and explicit callouts (e.g., "45'", "LOT AREA = 6,000 SF", "1\\"=20'-0").`,
-        `- You MAY combine clearly labeled dimensions to infer a total length (for example, summing segments).`,
-        `- Avoid wild guessing. When a value is not clearly stated or reasonably inferred from dimensions, leave the field as an empty string ("").`,
-        `- If you approximate a length using the scale note or scale bar, keep it reasonable, mark it as approximate (e.g., "≈45"), and mention the assumption in unusual_items or structural_notes.`,
+        `Water / sewer measurement rules (very important):`,
+        `- Identify the W (water meter pit) and S (sewer stub) symbols and the lines from those symbols to the house.`,
+        `- If a legible scale note (for example "1\\"=20'-0") or a graphic scale bar is present, you MUST attempt to estimate the water and sewer line lengths using that scale.`,
+        `- Use dimension text when available. Otherwise, measure using the scale and provide a reasonable estimate in feet, rounded to the nearest whole foot.`,
+        `- For each service, set estimation_data.<service>_length_method to one of:`,
+        `   "dimension_text" (if the length is clearly labeled),`,
+        `   "scale_bar_approx" (if estimated via scale/graphic bar),`,
+        `   "inferred_from_property_dims" (if inferred from known lot dimensions and offsets),`,
+        `   "unknown" (if you truly cannot determine the length).`,
         ``,
-        `If an item truly is not present or cannot be read, leave that field as an empty string. Do NOT invent obviously unrealistic numbers.`,
+        `General rules:`,
+        `- Avoid wild guessing. When a value is not clearly stated or reasonably inferred from dimensions/scale, leave that field as an empty string ("").`,
+        `- If you approximate a value using the scale, keep it reasonable, and mention the assumption in unusual_items or structural_notes or estimation_data.plot_grading_notes.`,
+        `- Do NOT invent obviously unrealistic numbers.`,
       ]
     : [
         `Your job:`,
@@ -153,7 +160,7 @@ app.post('/analyze-plan', async (req, res) => {
       });
     }
 
-     const response = await client.responses.create({
+          const response = await client.responses.create({
       model: 'gpt-4.1',
       input: [
         {
@@ -190,7 +197,7 @@ app.post('/analyze-plan', async (req, res) => {
               estimation_data: {
                 type: 'object',
                 properties: {
-                  // 🔹 Existing foundation-focused fields
+                  // Existing foundation-focused fields
                   basement_wall_height_ft:    { type: 'string' },
                   basement_wall_thickness_in: { type: 'string' },
                   basement_perimeter_ft:      { type: 'string' },
@@ -206,23 +213,27 @@ app.post('/analyze-plan', async (req, res) => {
                   retaining_conditions:       { type: 'string' },
                   rebar_summary:              { type: 'string' },
 
-                  // 🔹 NEW plot/grading-focused fields
+                  // NEW plot/grading-focused fields
                   // water service route length from meter pit to house (ft)
-                  water_service_length_ft:          { type: 'string' },
+                  water_service_length_ft:    { type: 'string' },
+                  // how that water length was determined
+                  water_service_length_method:{ type: 'string' },
                   // sanitary sewer route length from stub to house (ft)
-                  sewer_service_length_ft:          { type: 'string' },
+                  sewer_service_length_ft:    { type: 'string' },
+                  // how that sewer length was determined
+                  sewer_service_length_method:{ type: 'string' },
                   // lot area in square feet, if given or clearly derivable
-                  lot_area_sqft:                    { type: 'string' },
+                  lot_area_sqft:              { type: 'string' },
                   // house building footprint area in square feet
-                  house_footprint_area_sqft:        { type: 'string' },
+                  house_footprint_area_sqft:  { type: 'string' },
                   // grading area (lot - footprint) in square feet, when both known
-                  grading_area_sqft:                { type: 'string' },
+                  grading_area_sqft:          { type: 'string' },
                   // top of foundation (TOF) elevation, e.g. "5521.0"
-                  top_of_foundation_elev_ft:        { type: 'string' },
+                  top_of_foundation_elev_ft:  { type: 'string' },
                   // total foundation wall linear footage, if reasonably determinable
-                  foundation_wall_total_lf:         { type: 'string' },
+                  foundation_wall_total_lf:   { type: 'string' },
                   // free-form notes about options / grading conditions / assumptions
-                  plot_grading_notes:               { type: 'string' },
+                  plot_grading_notes:         { type: 'string' },
                 },
                 required: [
                   // existing required fields
@@ -243,7 +254,9 @@ app.post('/analyze-plan', async (req, res) => {
 
                   // new required fields (can still be empty strings)
                   'water_service_length_ft',
+                  'water_service_length_method',
                   'sewer_service_length_ft',
+                  'sewer_service_length_method',
                   'lot_area_sqft',
                   'house_footprint_area_sqft',
                   'grading_area_sqft',
@@ -289,6 +302,7 @@ app.post('/analyze-plan', async (req, res) => {
         },
       },
     });
+
 
 
     const jsonText = response.output_text;
