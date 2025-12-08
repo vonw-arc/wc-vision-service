@@ -26,16 +26,58 @@ function buildPrompt(extraContext = {}, estimateId) {
     docType,
   } = extraContext || {};
 
-  return [
+  const docLower = (docType || '').toString().toLowerCase();
+  const isPlotOrGrading =
+    docLower.includes('plot') ||
+    docLower.includes('grading');
+
+  const headerLines = [
     `You are a senior concrete and excavation estimator for Watren Concrete.`,
-    `You are reading either a FOUNDATION PLAN IMAGE or a MULTI-PAGE FOUNDATION PDF.`,
+    isPlotOrGrading
+      ? `You are reading a residential PLOT / GRADING PLAN image or multi-page PDF.`
+      : `You are reading either a FOUNDATION PLAN IMAGE or a MULTI-PAGE FOUNDATION PDF.`,
     ``,
-    `Your job:`,
-    `1) Carefully read ALL visible notes, schedules, and callouts.`,
-    `2) Extract SPECIFIC, ESTIMATION-READY DATA into the JSON schema fields provided.`,
-    `3) Avoid vague wording. When possible, include actual numbers (sizes, spacings, strengths).`,
-    ``,
-    `If an item truly is not present or cannot be read, leave that field as an empty string. Do NOT make up numbers.`,
+  ];
+
+  const jobLines = isPlotOrGrading
+    ? [
+        `Your job:`,
+        `1) Carefully read ALL visible notes, schedules, callouts, dimension strings, and scale/graphic bars on the plot/grading plan.`,
+        `2) Extract SPECIFIC, ESTIMATION-READY DATA into the JSON schema fields provided.`,
+        `3) Focus especially on:`,
+        `   - Water service route and length from meter pit to house (estimation_data.water_service_length_ft).`,
+        `   - Sanitary sewer route and length from stub to house (estimation_data.sewer_service_length_ft).`,
+        `   - Lot area (estimation_data.lot_area_sqft).`,
+        `   - House footprint area (estimation_data.house_footprint_area_sqft).`,
+        `   - Grading area = lot area minus house footprint (estimation_data.grading_area_sqft) when both are known.`,
+        `   - Top of foundation elevation (estimation_data.top_of_foundation_elev_ft).`,
+        `   - Total foundation wall linear footage if reasonably determinable (estimation_data.foundation_wall_total_lf).`,
+        `   - Any notable options or grading-related conditions (estimation_data.plot_grading_notes).`,
+        ``,
+        `Measurement rules (very important):`,
+        `- PREFER dimension text and explicit callouts (e.g., "45'", "LOT AREA = 6,000 SF", "1\\"=20'-0").`,
+        `- You MAY combine clearly labeled dimensions to infer a total length (for example, summing segments).`,
+        `- Avoid wild guessing. When a value is not clearly stated or reasonably inferred from dimensions, leave the field as an empty string ("").`,
+        `- If you approximate a length using the scale note or scale bar, keep it reasonable, mark it as approximate (e.g., "≈45"), and mention the assumption in unusual_items or structural_notes.`,
+        ``,
+        `If an item truly is not present or cannot be read, leave that field as an empty string. Do NOT invent obviously unrealistic numbers.`,
+      ]
+    : [
+        `Your job:`,
+        `1) Carefully read ALL visible notes, schedules, and callouts.`,
+        `2) Extract SPECIFIC, ESTIMATION-READY DATA into the JSON schema fields provided.`,
+        `3) Avoid vague wording. When possible, include actual numbers (sizes, spacings, strengths).`,
+        ``,
+        `If an item truly is not present or cannot be read, leave that field as an empty string. Do NOT make up numbers.`,
+        ``,
+        `Important:`,
+        `- Include any wall heights, slab thicknesses, footing sizes, and concrete strengths you can read.`,
+        `- Include key rebar sizes and spacings (e.g., "#4 @ 12\\" o.c. horiz / vert").`,
+        `- Note special features that affect cost (retaining conditions, turndowns, piers, thickened slabs, etc.).`,
+        `- If the subdivision name is visible anywhere, put it in lot_info.subdivision.`,
+      ];
+
+  const contextLines = [
     ``,
     `Context (may help you interpret the plan):`,
     `Estimate ID: ${estimateId || 'Unknown'}`,
@@ -44,13 +86,9 @@ function buildPrompt(extraContext = {}, estimateId) {
     builder   ? `Builder: ${builder}`       : '',
     community ? `Community: ${community}`   : '',
     docType   ? `Document type: ${docType}` : '',
-    ``,
-    `Important:`,
-    `- Include any wall heights, slab thicknesses, footing sizes, and concrete strengths you can read.`,
-    `- Include key rebar sizes and spacings (e.g., "#4 @ 12\\" o.c. horiz / vert").`,
-    `- Note special features that affect cost (retaining conditions, turndowns, piers, thickened slabs, etc.).`,
-    `- If the subdivision name is visible anywhere, put it in lot_info.subdivision.`,
-  ].filter(Boolean).join('\n');
+  ].filter(Boolean);
+
+  return [...headerLines, ...jobLines, ...contextLines].join('\n');
 }
 
 // ---- MAIN ENDPOINT: supports BOTH images and PDFs ----
@@ -115,7 +153,7 @@ app.post('/analyze-plan', async (req, res) => {
       });
     }
 
-    const response = await client.responses.create({
+     const response = await client.responses.create({
       model: 'gpt-4.1',
       input: [
         {
@@ -152,6 +190,7 @@ app.post('/analyze-plan', async (req, res) => {
               estimation_data: {
                 type: 'object',
                 properties: {
+                  // 🔹 Existing foundation-focused fields
                   basement_wall_height_ft:    { type: 'string' },
                   basement_wall_thickness_in: { type: 'string' },
                   basement_perimeter_ft:      { type: 'string' },
@@ -166,9 +205,27 @@ app.post('/analyze-plan', async (req, res) => {
                   driveway_sqft:              { type: 'string' },
                   retaining_conditions:       { type: 'string' },
                   rebar_summary:              { type: 'string' },
+
+                  // 🔹 NEW plot/grading-focused fields
+                  // water service route length from meter pit to house (ft)
+                  water_service_length_ft:          { type: 'string' },
+                  // sanitary sewer route length from stub to house (ft)
+                  sewer_service_length_ft:          { type: 'string' },
+                  // lot area in square feet, if given or clearly derivable
+                  lot_area_sqft:                    { type: 'string' },
+                  // house building footprint area in square feet
+                  house_footprint_area_sqft:        { type: 'string' },
+                  // grading area (lot - footprint) in square feet, when both known
+                  grading_area_sqft:                { type: 'string' },
+                  // top of foundation (TOF) elevation, e.g. "5521.0"
+                  top_of_foundation_elev_ft:        { type: 'string' },
+                  // total foundation wall linear footage, if reasonably determinable
+                  foundation_wall_total_lf:         { type: 'string' },
+                  // free-form notes about options / grading conditions / assumptions
+                  plot_grading_notes:               { type: 'string' },
                 },
-                // With strict JSON schema in this API, "required" must list *all* properties
                 required: [
+                  // existing required fields
                   'basement_wall_height_ft',
                   'basement_wall_thickness_in',
                   'basement_perimeter_ft',
@@ -183,6 +240,16 @@ app.post('/analyze-plan', async (req, res) => {
                   'driveway_sqft',
                   'retaining_conditions',
                   'rebar_summary',
+
+                  // new required fields (can still be empty strings)
+                  'water_service_length_ft',
+                  'sewer_service_length_ft',
+                  'lot_area_sqft',
+                  'house_footprint_area_sqft',
+                  'grading_area_sqft',
+                  'top_of_foundation_elev_ft',
+                  'foundation_wall_total_lf',
+                  'plot_grading_notes',
                 ],
                 additionalProperties: false,
               },
@@ -204,7 +271,6 @@ app.post('/analyze-plan', async (req, res) => {
 
               quick_summary: { type: 'string' },
             },
-            // Same deal here: required must include every key in properties
             required: [
               'lot_info',
               'foundation_type',
@@ -223,6 +289,7 @@ app.post('/analyze-plan', async (req, res) => {
         },
       },
     });
+
 
     const jsonText = response.output_text;
     let parsed;
