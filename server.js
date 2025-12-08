@@ -190,7 +190,7 @@ app.post('/analyze-plan', async (req, res) => {
       });
     }
 
-     const response = await client.responses.create({
+         const response = await client.responses.create({
       model: 'gpt-4.1',
       input: [
         {
@@ -224,7 +224,7 @@ app.post('/analyze-plan', async (req, res) => {
 
               structural_notes: { type: 'string' },
 
-                             estimation_data: {
+              estimation_data: {
                 type: 'object',
                 properties: {
                   // Existing foundation-focused fields
@@ -244,25 +244,15 @@ app.post('/analyze-plan', async (req, res) => {
                   rebar_summary:              { type: 'string' },
 
                   // NEW plot/grading-focused fields
-                  // water service route length from meter pit to house (ft)
                   water_service_length_ft:     { type: 'string' },
-                  // how that water length was determined
                   water_service_length_method: { type: 'string' },
-                  // sanitary sewer route length from stub to house (ft)
                   sewer_service_length_ft:     { type: 'string' },
-                  // how that sewer length was determined
                   sewer_service_length_method: { type: 'string' },
-                  // lot area in square feet, if given or clearly derivable
                   lot_area_sqft:               { type: 'string' },
-                  // house building footprint area in square feet
                   house_footprint_area_sqft:   { type: 'string' },
-                  // grading area (lot - footprint) in square feet, when both known
                   grading_area_sqft:           { type: 'string' },
-                  // top of foundation (TOF) elevation, e.g. "5521.0"
                   top_of_foundation_elev_ft:   { type: 'string' },
-                  // total foundation wall linear footage, if reasonably determinable
                   foundation_wall_total_lf:    { type: 'string' },
-                  // free-form notes about options / grading conditions / assumptions
                   plot_grading_notes:          { type: 'string' },
                 },
                 required: [
@@ -296,6 +286,39 @@ app.post('/analyze-plan', async (req, res) => {
                 ],
                 additionalProperties: false,
               },
+
+              unusual_items: {
+                type: 'array',
+                items: { type: 'string' },
+              },
+
+              inspection_requirements: {
+                type: 'array',
+                items: { type: 'string' },
+              },
+
+              code_references: {
+                type: 'array',
+                items: { type: 'string' },
+              },
+
+              quick_summary: { type: 'string' },
+            },
+            required: [
+              'lot_info',
+              'foundation_type',
+              'garage_type',
+              'porch_count',
+              'basement_notes',
+              'structural_notes',
+              'estimation_data',
+              'unusual_items',
+              'inspection_requirements',
+              'code_references',
+              'quick_summary',
+            ],
+            additionalProperties: false,
+          },
         },
       },
     });
