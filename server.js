@@ -224,7 +224,7 @@ app.post('/analyze-plan', async (req, res) => {
 
               structural_notes: { type: 'string' },
 
-              estimation_data: {
+               estimation_data: {
                 type: 'object',
                 properties: {
                   // Existing foundation-focused fields
@@ -265,7 +265,7 @@ app.post('/analyze-plan', async (req, res) => {
                   // free-form notes about options / grading conditions / assumptions
                   plot_grading_notes:          { type: 'string' },
 
-                  // OPTIONAL multi-unit (townhome) support
+                  // OPTIONAL multi-unit (townhome) support (will just be [] when not used)
                   multi_unit_services: {
                     type: 'array',
                     items: {
@@ -288,8 +288,8 @@ app.post('/analyze-plan', async (req, res) => {
                     },
                   },
                 },
-                 required: [
-                  // existing required fields (unique)
+                required: [
+                  // existing required fields
                   'basement_wall_height_ft',
                   'basement_wall_thickness_in',
                   'basement_perimeter_ft',
@@ -316,44 +316,13 @@ app.post('/analyze-plan', async (req, res) => {
                   'top_of_foundation_elev_ft',
                   'foundation_wall_total_lf',
                   'plot_grading_notes',
-                  // multi_unit_services is OPTIONAL and therefore not required
-                ],
 
+                  // multi-unit list is required as a key, but can just be an empty array
+                  'multi_unit_services',
+                ],
                 additionalProperties: false,
               },
 
-              unusual_items: {
-                type: 'array',
-                items: { type: 'string' },
-              },
-
-              inspection_requirements: {
-                type: 'array',
-                items: { type: 'string' },
-              },
-
-              code_references: {
-                type: 'array',
-                items: { type: 'string' },
-              },
-
-              quick_summary: { type: 'string' },
-            },
-            required: [
-              'lot_info',
-              'foundation_type',
-              'garage_type',
-              'porch_count',
-              'basement_notes',
-              'structural_notes',
-              'estimation_data',
-              'unusual_items',
-              'inspection_requirements',
-              'code_references',
-              'quick_summary',
-            ],
-            additionalProperties: false,
-          },
         },
       },
     });
