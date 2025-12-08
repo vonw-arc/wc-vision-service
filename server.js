@@ -288,15 +288,14 @@ app.post('/analyze-plan', async (req, res) => {
                     },
                   },
                 },
-                required: [
-                  // existing required fields
+                 required: [
+                  // existing required fields (unique)
                   'basement_wall_height_ft',
                   'basement_wall_thickness_in',
                   'basement_perimeter_ft',
                   'footing_width_in',
                   'footing_thickness_in',
                   'frost_depth_in',
-                  'slab_thickness_in',
                   'slab_thickness_in',
                   'concrete_strength_psi',
                   'garage_slab_sqft',
@@ -319,6 +318,7 @@ app.post('/analyze-plan', async (req, res) => {
                   'plot_grading_notes',
                   // multi_unit_services is OPTIONAL and therefore not required
                 ],
+
                 additionalProperties: false,
               },
 
