@@ -192,7 +192,7 @@ app.post('/analyze-plan', async (req, res) => {
       isPdf = true;
     }
 
-    // Multimodal content: prompt + either file or image
+    // Multimodal content: system-like prompt + either file or image
     const content = [
       {
         type: 'input_text',
@@ -212,6 +212,7 @@ app.post('/analyze-plan', async (req, res) => {
       });
     }
 
+    // 🔴 IMPORTANT: NO response_format. Use text.format instead.
     const response = await client.responses.create({
       model: 'gpt-4.1',
       input: [
@@ -220,9 +221,9 @@ app.post('/analyze-plan', async (req, res) => {
           content,
         },
       ],
-      response_format: {
-        type: 'json_schema',
-        json_schema: {
+      text: {
+        format: {
+          type: 'json_schema',
           name: 'wc_foundation_summary',
           strict: true,
           schema: {
@@ -249,7 +250,6 @@ app.post('/analyze-plan', async (req, res) => {
               estimation_data: {
                 type: 'object',
                 properties: {
-                  // Existing foundation-focused fields
                   basement_wall_height_ft:    { type: 'string' },
                   basement_wall_thickness_in: { type: 'string' },
                   basement_perimeter_ft:      { type: 'string' },
@@ -265,7 +265,6 @@ app.post('/analyze-plan', async (req, res) => {
                   retaining_conditions:       { type: 'string' },
                   rebar_summary:              { type: 'string' },
 
-                  // Plot/grading-focused fields
                   water_service_length_ft:     { type: 'string' },
                   water_service_length_method: { type: 'string' },
                   sewer_service_length_ft:     { type: 'string' },
@@ -340,41 +339,27 @@ app.post('/analyze-plan', async (req, res) => {
           },
         },
       },
-      temperature: 0.1,
-      max_output_tokens: 2000,
     });
 
-    // Responses API: read the text content
-    const firstOutput = response.output && response.output[0];
-    const firstContent = firstOutput && firstOutput.content && firstOutput.content[0];
-    const jsonText = firstContent && firstContent.text;
-
-    if (!jsonText) {
-      console.error('No text content in vision response:', JSON.stringify(response, null, 2));
-      return res.status(500).json({
-        error: 'Vision service failed',
-        details: 'No text content returned from model.',
-      });
-    }
-
+    // Depending on SDK version, this may already be a parsed object
+    const jsonText = response.output_text;
     let parsed;
     try {
       parsed = JSON.parse(jsonText);
     } catch (e) {
       console.error('Failed to parse JSON schema output:', e);
-      console.error('Raw output text:', jsonText);
+      console.error('Raw output_text:', jsonText);
       return res.status(500).json({
         error: 'Vision service failed',
         details: 'Could not parse JSON output.',
       });
     }
 
-    // IMPORTANT: shape this to match what Apps Script expects (model + raw)
     res.json({
       success: true,
       source: isPdf ? 'pdf' : 'image',
-      model: parsed,
-      raw: jsonText,
+      model: parsed,      // <-- so Apps Script can use result.model
+      raw: jsonText,      // <-- raw text if you want it
     });
   } catch (err) {
     console.error('Vision error:', err);
