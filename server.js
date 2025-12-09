@@ -210,9 +210,10 @@ app.post('/analyze-plan', async (req, res) => {
 
               structural_notes: { type: 'string' },
 
-              estimation_data: {
+               estimation_data: {
                 type: 'object',
                 properties: {
+                  // --- Existing scalar fields (unchanged) ---
                   basement_wall_height_ft:    { type: 'string' },
                   basement_wall_thickness_in: { type: 'string' },
                   basement_perimeter_ft:      { type: 'string' },
@@ -238,7 +239,60 @@ app.post('/analyze-plan', async (req, res) => {
                   top_of_foundation_elev_ft:   { type: 'string' },
                   foundation_wall_total_lf:    { type: 'string' },
                   plot_grading_notes:          { type: 'string' },
+
+                  // --- NEW: structured buckets for Step 2 ---
+
+                  // Groups of walls by height & thickness
+                  walls_by_height: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        height_ft:    { type: 'string' }, // e.g. "8", "9", "10"
+                        thickness_in: { type: 'string' }, // e.g. "8", "10"
+                        length_lf:    { type: 'string' }, // total LF for this group
+                        notes:        { type: 'string' }, // e.g. "Basement soil side"
+                      },
+                      required: ['height_ft', 'thickness_in', 'length_lf', 'notes'],
+                      additionalProperties: false,
+                    },
+                  },
+
+                  // Groups of footings by width & thickness
+                  footings_by_size: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        width_in:    { type: 'string' }, // e.g. "16", "24"
+                        thickness_in:{ type: 'string' }, // e.g. "8", "12"
+                        length_lf:   { type: 'string' }, // total LF for this group
+                        notes:       { type: 'string' }, // e.g. "Continuous under basement walls"
+                      },
+                      required: ['width_in', 'thickness_in', 'length_lf', 'notes'],
+                      additionalProperties: false,
+                    },
+                  },
+
+                  // Individual slab zones (basement, garage, porch, etc.)
+                  slabs: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        location:     { type: 'string' }, // "Basement slab", "Garage slab", etc.
+                        thickness_in: { type: 'string' }, // e.g. "4"
+                        area_sqft:    { type: 'string' }, // slab area in SF
+                        notes:        { type: 'string' }, // short description
+                      },
+                      required: ['location', 'thickness_in', 'area_sqft', 'notes'],
+                      additionalProperties: false,
+                    },
+                  },
                 },
+
+                // Keep the scalars required so the model always returns SOMETHING
+                // (it can use "" for truly unknown values). Arrays are optional.
                 required: [
                   'basement_wall_height_ft',
                   'basement_wall_thickness_in',
@@ -267,6 +321,7 @@ app.post('/analyze-plan', async (req, res) => {
                 ],
                 additionalProperties: false,
               },
+
 
               unusual_items: {
                 type: 'array',
