@@ -210,10 +210,10 @@ app.post('/analyze-plan', async (req, res) => {
 
               structural_notes: { type: 'string' },
 
-               estimation_data: {
+              estimation_data: {
                 type: 'object',
                 properties: {
-                  // --- Existing scalar fields (unchanged) ---
+                  // --- Existing scalar fields ---
                   basement_wall_height_ft:    { type: 'string' },
                   basement_wall_thickness_in: { type: 'string' },
                   basement_perimeter_ft:      { type: 'string' },
@@ -240,7 +240,7 @@ app.post('/analyze-plan', async (req, res) => {
                   foundation_wall_total_lf:    { type: 'string' },
                   plot_grading_notes:          { type: 'string' },
 
-                  // --- NEW: structured buckets for Step 2 ---
+                  // --- NEW arrays ---
 
                   // Groups of walls by height & thickness
                   walls_by_height: {
@@ -291,8 +291,7 @@ app.post('/analyze-plan', async (req, res) => {
                   },
                 },
 
-                // Keep the scalars required so the model always returns SOMETHING
-                // (it can use "" for truly unknown values). Arrays are optional.
+                // strict mode: MUST list *all* keys from properties here
                 required: [
                   'basement_wall_height_ft',
                   'basement_wall_thickness_in',
@@ -318,10 +317,12 @@ app.post('/analyze-plan', async (req, res) => {
                   'top_of_foundation_elev_ft',
                   'foundation_wall_total_lf',
                   'plot_grading_notes',
+                  'walls_by_height',      // 👈 added
+                  'footings_by_size',     // 👈 added
+                  'slabs'                 // 👈 added
                 ],
                 additionalProperties: false,
               },
-
 
               unusual_items: {
                 type: 'array',
