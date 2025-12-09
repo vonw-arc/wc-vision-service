@@ -116,276 +116,244 @@ return [...headerLines, ...jobLines, ...contextLines].join('\n');
 
 // ---- MAIN ENDPOINT: supports BOTH images and PDFs ----
 app.post('/analyze-plan', async (req, res) => {
-try {
-const internalKey = req.headers['x-internal-key'];
-if (!INTERNAL_API_KEY || internalKey !== INTERNAL_API_KEY) {
-return res.status(401).json({ error: 'Unauthorized' });
-}
+  try {
+    const internalKey = req.headers['x-internal-key'];
+    if (!INTERNAL_API_KEY || internalKey !== INTERNAL_API_KEY) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
 
-```
-const {
-  estimateId,
-  imageUrl,
-  fileUrl,
-  fileType,
-  extraContext,
-} = req.body || {};
+    const {
+      estimateId,
+      imageUrl,
+      fileUrl,
+      fileType,
+      extraContext,
+    } = req.body || {};
 
-const url = fileUrl || imageUrl;
+    const url = fileUrl || imageUrl;
 
-if (!url) {
-  return res.status(400).json({ error: 'Missing file/image URL' });
-}
+    if (!url) {
+      return res.status(400).json({ error: 'Missing file/image URL' });
+    }
 
-// Decide if this is a PDF or an image
-const lowerUrl  = String(url).toLowerCase();
-const lowerType = (fileType || '').toLowerCase();
+    // Decide if this is a PDF or an image
+    const lowerUrl  = String(url).toLowerCase();
+    const lowerType = (fileType || '').toLowerCase();
 
-const hasPdfExt = /\.pdf(\?|$)/.test(lowerUrl);
-const hasImgExt = /\.(png|jpg|jpeg|gif|webp)(\?|$)/.test(lowerUrl);
+    const hasPdfExt = /\.pdf(\?|$)/.test(lowerUrl);
+    const hasImgExt = /\.(png|jpg|jpeg|gif|webp)(\?|$)/.test(lowerUrl);
 
-const isExplicitPdfType = lowerType === 'pdf';
-const isExplicitImgType = ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(lowerType);
+    const isExplicitPdfType = lowerType === 'pdf';
+    const isExplicitImgType = ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(lowerType);
 
-let isPdf = isExplicitPdfType || hasPdfExt;
+    let isPdf = isExplicitPdfType || hasPdfExt;
 
-// If we *know* it's an image, never force it to PDF.
-if (!isPdf && !hasImgExt && !isExplicitImgType) {
-  // Ambiguous URL (Drive share links) → assume PDF
-  isPdf = true;
-}
+    // If we *know* it's an image, never force it to PDF.
+    if (!isPdf && !hasImgExt && !isExplicitImgType) {
+      // Ambiguous URL (your usual case from Drive) → assume PDF
+      isPdf = true;
+    }
 
-// Multimodal content: system-like prompt + either file or image
-const content = [
-  {
-    type: 'input_text',
-    text: buildPrompt(extraContext, estimateId),
-  },
-];
+    // Multimodal content: system-like prompt + either file or image
+    const content = [
+      {
+        type: 'input_text',
+        text: buildPrompt(extraContext, estimateId),
+      },
+    ];
 
-if (isPdf) {
-  // PDF: Responses API pulls the PDF directly
-  content.push({
-    type: 'input_file',
-    file_url: url,
-  });
-} else {
-  // Image: normal vision path
-  content.push({
-    type: 'input_image',
-    image_url: url,
-  });
-}
+    if (isPdf) {
+      // PDF: Responses API pulls the PDF directly
+      content.push({
+        type: 'input_file',
+        file_url: url,
+      });
+    } else {
+      // Image: normal vision path
+      content.push({
+        type: 'input_image',
+        image_url: url,
+      });
+    }
 
-const response = await client.responses.create({
-  model: 'gpt-4.1',
-  input: [
-    {
-      role: 'user',
-      content,
-    },
-  ],
-  text: {
-    format: {
-      type: 'json_schema',
-      name: 'wc_foundation_summary',
-      strict: true,
-      schema: {
-        type: 'object',
-        properties: {
-          lot_info: {
+    const response = await client.responses.create({
+      model: 'gpt-4.1',
+      input: [
+        {
+          role: 'user',
+          content,
+        },
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'wc_foundation_summary',
+          strict: true,
+          schema: {
             type: 'object',
             properties: {
-              lot_number:  { type: 'string' },
-              block:       { type: 'string' },
-              subdivision: { type: 'string' },
-            },
-            required: ['lot_number', 'block', 'subdivision'],
-            additionalProperties: false,
-          },
-
-          foundation_type: { type: 'string' },
-          garage_type:     { type: 'string' },
-          porch_count:     { type: 'integer' },
-          basement_notes:  { type: 'string' },
-
-          structural_notes: { type: 'string' },
-
-          estimation_data: {
-            type: 'object',
-            properties: {
-              // Existing foundation-focused fields
-              basement_wall_height_ft:    { type: 'string' },
-              basement_wall_thickness_in: { type: 'string' },
-              basement_perimeter_ft:      { type: 'string' },
-              footing_width_in:           { type: 'string' },
-              footing_thickness_in:       { type: 'string' },
-              frost_depth_in:             { type: 'string' },
-              slab_thickness_in:          { type: 'string' },
-              concrete_strength_psi:      { type: 'string' },
-              garage_slab_sqft:           { type: 'string' },
-              basement_slab_sqft:         { type: 'string' },
-              porch_sqft_total:           { type: 'string' },
-              driveway_sqft:              { type: 'string' },
-              retaining_conditions:       { type: 'string' },
-              rebar_summary:              { type: 'string' },
-
-              // NEW: quantity-friendly structural groupings
-              walls_by_height: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    height_ft:    { type: 'string' },
-                    thickness_in: { type: 'string' },
-                    length_lf:    { type: 'string' },
-                    notes:        { type: 'string' },
-                  },
-                  required: ['height_ft', 'thickness_in', 'length_lf', 'notes'],
-                  additionalProperties: false,
+              lot_info: {
+                type: 'object',
+                properties: {
+                  lot_number:  { type: 'string' },
+                  block:       { type: 'string' },
+                  subdivision: { type: 'string' },
                 },
+                required: ['lot_number', 'block', 'subdivision'],
+                additionalProperties: false,
               },
 
-              footings_by_size: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    width_in:     { type: 'string' },
-                    thickness_in: { type: 'string' },
-                    length_lf:    { type: 'string' },
-                    notes:        { type: 'string' },
-                  },
-                  required: ['width_in', 'thickness_in', 'length_lf', 'notes'],
-                  additionalProperties: false,
+              foundation_type: { type: 'string' },
+              garage_type:     { type: 'string' },
+              porch_count:     { type: 'integer' },
+              basement_notes:  { type: 'string' },
+
+              structural_notes: { type: 'string' },
+
+              estimation_data: {
+                type: 'object',
+                properties: {
+                  basement_wall_height_ft:    { type: 'string' },
+                  basement_wall_thickness_in: { type: 'string' },
+                  basement_perimeter_ft:      { type: 'string' },
+                  footing_width_in:           { type: 'string' },
+                  footing_thickness_in:       { type: 'string' },
+                  frost_depth_in:             { type: 'string' },
+                  slab_thickness_in:          { type: 'string' },
+                  concrete_strength_psi:      { type: 'string' },
+                  garage_slab_sqft:           { type: 'string' },
+                  basement_slab_sqft:         { type: 'string' },
+                  porch_sqft_total:           { type: 'string' },
+                  driveway_sqft:              { type: 'string' },
+                  retaining_conditions:       { type: 'string' },
+                  rebar_summary:              { type: 'string' },
+
+                  water_service_length_ft:     { type: 'string' },
+                  water_service_length_method: { type: 'string' },
+                  sewer_service_length_ft:     { type: 'string' },
+                  sewer_service_length_method: { type: 'string' },
+                  lot_area_sqft:               { type: 'string' },
+                  house_footprint_area_sqft:   { type: 'string' },
+                  grading_area_sqft:           { type: 'string' },
+                  top_of_foundation_elev_ft:   { type: 'string' },
+                  foundation_wall_total_lf:    { type: 'string' },
+                  plot_grading_notes:          { type: 'string' },
                 },
+                required: [
+                  'basement_wall_height_ft',
+                  'basement_wall_thickness_in',
+                  'basement_perimeter_ft',
+                  'footing_width_in',
+                  'footing_thickness_in',
+                  'frost_depth_in',
+                  'slab_thickness_in',
+                  'concrete_strength_psi',
+                  'garage_slab_sqft',
+                  'basement_slab_sqft',
+                  'porch_sqft_total',
+                  'driveway_sqft',
+                  'retaining_conditions',
+                  'rebar_summary',
+                  'water_service_length_ft',
+                  'water_service_length_method',
+                  'sewer_service_length_ft',
+                  'sewer_service_length_method',
+                  'lot_area_sqft',
+                  'house_footprint_area_sqft',
+                  'grading_area_sqft',
+                  'top_of_foundation_elev_ft',
+                  'foundation_wall_total_lf',
+                  'plot_grading_notes',
+                ],
+                additionalProperties: false,
               },
 
-              slabs: {
+              unusual_items: {
                 type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    location:     { type: 'string' },
-                    thickness_in: { type: 'string' },
-                    area_sqft:    { type: 'string' },
-                    notes:        { type: 'string' },
-                  },
-                  required: ['location', 'thickness_in', 'area_sqft', 'notes'],
-                  additionalProperties: false,
-                },
+                items: { type: 'string' },
               },
 
-              // Plot/grading-focused fields
-              water_service_length_ft:     { type: 'string' },
-              water_service_length_method: { type: 'string' },
-              sewer_service_length_ft:     { type: 'string' },
-              sewer_service_length_method: { type: 'string' },
-              lot_area_sqft:               { type: 'string' },
-              house_footprint_area_sqft:   { type: 'string' },
-              grading_area_sqft:           { type: 'string' },
-              top_of_foundation_elev_ft:   { type: 'string' },
-              foundation_wall_total_lf:    { type: 'string' },
-              plot_grading_notes:          { type: 'string' },
+              inspection_requirements: {
+                type: 'array',
+                items: { type: 'string' },
+              },
+
+              code_references: {
+                type: 'array',
+                items: { type: 'string' },
+              },
+
+              quick_summary: { type: 'string' },
             },
             required: [
-              // existing required fields
-              'basement_wall_height_ft',
-              'basement_wall_thickness_in',
-              'basement_perimeter_ft',
-              'footing_width_in',
-              'footing_thickness_in',
-              'frost_depth_in',
-              'slab_thickness_in',
-              'concrete_strength_psi',
-              'garage_slab_sqft',
-              'basement_slab_sqft',
-              'porch_sqft_total',
-              'driveway_sqft',
-              'retaining_conditions',
-              'rebar_summary',
-
-              // new required fields (can still be empty strings / empty arrays)
-              'walls_by_height',
-              'footings_by_size',
-              'slabs',
-              'water_service_length_ft',
-              'water_service_length_method',
-              'sewer_service_length_ft',
-              'sewer_service_length_method',
-              'lot_area_sqft',
-              'house_footprint_area_sqft',
-              'grading_area_sqft',
-              'top_of_foundation_elev_ft',
-              'foundation_wall_total_lf',
-              'plot_grading_notes',
+              'lot_info',
+              'foundation_type',
+              'garage_type',
+              'porch_count',
+              'basement_notes',
+              'structural_notes',
+              'estimation_data',
+              'unusual_items',
+              'inspection_requirements',
+              'code_references',
+              'quick_summary',
             ],
             additionalProperties: false,
           },
-
-          unusual_items: {
-            type: 'array',
-            items: { type: 'string' },
-          },
-
-          inspection_requirements: {
-            type: 'array',
-            items: { type: 'string' },
-          },
-
-          code_references: {
-            type: 'array',
-            items: { type: 'string' },
-          },
-
-          quick_summary: { type: 'string' },
         },
-        required: [
-          'lot_info',
-          'foundation_type',
-          'garage_type',
-          'porch_count',
-          'basement_notes',
-          'structural_notes',
-          'estimation_data',
-          'unusual_items',
-          'inspection_requirements',
-          'code_references',
-          'quick_summary',
-        ],
-        additionalProperties: false,
       },
-    },
-  },
-});
+    });
 
-const jsonText = response.output_text;
-let parsed;
-try {
-  parsed = JSON.parse(jsonText);
-} catch (e) {
-  console.error('Failed to parse JSON schema output:', e);
-  console.error('Raw output_text:', jsonText);
-  return res.status(500).json({
-    error: 'Vision service failed',
-    details: 'Could not parse JSON output.',
-  });
-}
+    // ---- Safely extract the JSON text ----
+    let jsonText = '';
 
-res.json({
-  success: true,
-  source: isPdf ? 'pdf' : 'image',
-  data: parsed,
-});
-```
+    if (typeof response.output_text === 'string' && response.output_text.trim()) {
+      jsonText = response.output_text;
+    } else if (
+      Array.isArray(response.output) &&
+      response.output[0] &&
+      response.output[0].content &&
+      response.output[0].content[0] &&
+      typeof response.output[0].content[0].text === 'string'
+    ) {
+      jsonText = response.output[0].content[0].text;
+    }
 
-} catch (err) {
-console.error('Vision error:', err);
-res.status(500).json({
-error: 'Vision service failed',
-details: err?.message || String(err),
-});
-}
+    if (!jsonText) {
+      console.error('No JSON text returned from model:', JSON.stringify(response, null, 2));
+      return res.status(500).json({
+        error: 'Vision service failed',
+        details: 'Model did not return JSON text in output.',
+      });
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonText);
+    } catch (e) {
+      console.error('Failed to parse JSON schema output:', e);
+      console.error('Raw output_text:', jsonText);
+      return res.status(500).json({
+        error: 'Vision service failed',
+        details: 'Could not parse JSON output.',
+      });
+    }
+
+    // Backward-compatible payload for Apps Script
+    res.json({
+      success: true,
+      source: isPdf ? 'pdf' : 'image',
+      model: parsed,       // <- what Apps Script uses now
+      data: parsed,        // <- legacy alias
+      raw: jsonText,       // <- for logging/debug in the sheet
+    });
+  } catch (err) {
+    console.error('Vision error:', err);
+    res.status(500).json({
+      error: 'Vision service failed',
+      details: err?.message || String(err),
+    });
+  }
 });
 
 app.get('/', (_req, res) => {
