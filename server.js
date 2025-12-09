@@ -37,6 +37,13 @@ function buildPrompt(extraContext = {}, estimateId) {
       ? `You are reading a residential PLOT / GRADING PLAN image or multi-page PDF.`
       : `You are reading either a FOUNDATION PLAN IMAGE or a MULTI-PAGE FOUNDATION PDF.`,
     ``,
+    `OUTPUT RULES (VERY IMPORTANT):`,
+    `- You must output ONLY a single JSON object.`,
+    `- That JSON object must strictly match the "wc_foundation_summary" schema provided by the tool.`,
+    `- Do NOT include any commentary, Markdown, or explanations outside the JSON.`,
+    `- Every required field in the schema MUST be present.`,
+    `- When a value is not shown or cannot be reliably inferred, use an empty string "" for that field.`,
+    ``,
   ];
 
   const jobLines = isPlotOrGrading
@@ -98,12 +105,24 @@ function buildPrompt(extraContext = {}, estimateId) {
         `- Avoid wild guessing. When a value is not clearly stated or reasonably inferred from dimensions/scale, leave that field as an empty string ("").`,
         `- If you approximate a value using the scale, keep it reasonable and mention the assumption in unusual_items, structural_notes, or estimation_data.plot_grading_notes.`,
         `- Do NOT invent obviously unrealistic numbers.`,
+        ``,
+        `Quick summary:`,
+        `- quick_summary must be a short, estimator-friendly sentence or two describing:`,
+        `  foundation type, main wall height/thickness (if visible), concrete strength, utility lengths, and any notable grading/retaining conditions.`,
       ]
     : [
         `Your job:`,
         `1) Carefully read ALL visible notes, schedules, and callouts.`,
         `2) Extract SPECIFIC, ESTIMATION-READY DATA into the JSON schema fields provided.`,
         `3) Avoid vague wording. When possible, include actual numbers (sizes, spacings, strengths).`,
+        ``,
+        `For estimation_data, focus on:`,
+        `- basement_wall_height_ft, basement_wall_thickness_in, basement_perimeter_ft.`,
+        `- footing_width_in, footing_thickness_in, frost_depth_in.`,
+        `- slab_thickness_in, concrete_strength_psi.`,
+        `- garage_slab_sqft, basement_slab_sqft, porch_sqft_total, driveway_sqft.`,
+        `- retaining_conditions and rebar_summary.`,
+        `- foundation_wall_total_lf if determinable from dimensions/scale.`,
         ``,
         `If an item truly is not present or cannot be read, leave that field as an empty string. Do NOT make up numbers.`,
         ``,
@@ -112,6 +131,11 @@ function buildPrompt(extraContext = {}, estimateId) {
         `- Include key rebar sizes and spacings (e.g., "#4 @ 12\\" o.c. horiz / vert").`,
         `- Note special features that affect cost (retaining conditions, turndowns, piers, thickened slabs, etc.).`,
         `- If the subdivision name is visible anywhere, put it in lot_info.subdivision.`,
+        ``,
+        `Quick summary:`,
+        `- quick_summary must briefly state the main concrete sizes and system:`,
+        `  e.g. "9' basement, 8\\" walls with (2) #4 top/bottom and #5 @18\\" o.c. soil side,`,
+        `       10\\" x 20\\" footings, 4\\" 3000 psi basement and garage slabs."`,
       ];
 
   const contextLines = [
@@ -168,7 +192,7 @@ app.post('/analyze-plan', async (req, res) => {
       isPdf = true;
     }
 
-    // Multimodal content: system-like prompt + either file or image
+    // Multimodal content: prompt + either file or image
     const content = [
       {
         type: 'input_text',
@@ -177,20 +201,18 @@ app.post('/analyze-plan', async (req, res) => {
     ];
 
     if (isPdf) {
-      // PDF: Responses API pulls the PDF directly
       content.push({
         type: 'input_file',
         file_url: url,
       });
     } else {
-      // Image: normal vision path
       content.push({
         type: 'input_image',
         image_url: url,
       });
     }
 
-     const response = await client.responses.create({
+    const response = await client.responses.create({
       model: 'gpt-4.1',
       input: [
         {
@@ -198,9 +220,9 @@ app.post('/analyze-plan', async (req, res) => {
           content,
         },
       ],
-      text: {
-        format: {
-          type: 'json_schema',
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
           name: 'wc_foundation_summary',
           strict: true,
           schema: {
@@ -243,7 +265,7 @@ app.post('/analyze-plan', async (req, res) => {
                   retaining_conditions:       { type: 'string' },
                   rebar_summary:              { type: 'string' },
 
-                  // NEW plot/grading-focused fields
+                  // Plot/grading-focused fields
                   water_service_length_ft:     { type: 'string' },
                   water_service_length_method: { type: 'string' },
                   sewer_service_length_ft:     { type: 'string' },
@@ -256,7 +278,6 @@ app.post('/analyze-plan', async (req, res) => {
                   plot_grading_notes:          { type: 'string' },
                 },
                 required: [
-                  // existing required fields
                   'basement_wall_height_ft',
                   'basement_wall_thickness_in',
                   'basement_perimeter_ft',
@@ -271,8 +292,6 @@ app.post('/analyze-plan', async (req, res) => {
                   'driveway_sqft',
                   'retaining_conditions',
                   'rebar_summary',
-
-                  // new required fields (can still be empty strings)
                   'water_service_length_ft',
                   'water_service_length_method',
                   'sewer_service_length_ft',
@@ -321,25 +340,41 @@ app.post('/analyze-plan', async (req, res) => {
           },
         },
       },
+      temperature: 0.1,
+      max_output_tokens: 2000,
     });
 
-    const jsonText = response.output_text;
+    // Responses API: read the text content
+    const firstOutput = response.output && response.output[0];
+    const firstContent = firstOutput && firstOutput.content && firstOutput.content[0];
+    const jsonText = firstContent && firstContent.text;
+
+    if (!jsonText) {
+      console.error('No text content in vision response:', JSON.stringify(response, null, 2));
+      return res.status(500).json({
+        error: 'Vision service failed',
+        details: 'No text content returned from model.',
+      });
+    }
+
     let parsed;
     try {
       parsed = JSON.parse(jsonText);
     } catch (e) {
       console.error('Failed to parse JSON schema output:', e);
-      console.error('Raw output_text:', jsonText);
+      console.error('Raw output text:', jsonText);
       return res.status(500).json({
         error: 'Vision service failed',
         details: 'Could not parse JSON output.',
       });
     }
 
+    // IMPORTANT: shape this to match what Apps Script expects (model + raw)
     res.json({
       success: true,
       source: isPdf ? 'pdf' : 'image',
-      data: parsed,
+      model: parsed,
+      raw: jsonText,
     });
   } catch (err) {
     console.error('Vision error:', err);
