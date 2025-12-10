@@ -351,6 +351,7 @@ app.post('/analyze-plan', async (req, res) => {
                   'walls_by_height',      // 👈 added
                   'footings_by_size',     // 👈 added
                   'slabs'                 // 👈 added
+		  'reference_grade_elev_ft',
                 ],
                 additionalProperties: false,
               },
