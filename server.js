@@ -18,31 +18,31 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 function buildPrompt(extraContext = {}, estimateId) {
-const {
-project,
-address,
-builder,
-community,
-docType,
-} = extraContext || {};
+  const {
+    project,
+    address,
+    builder,
+    community,
+    docType,
+  } = extraContext || {};
 
-const docLower = (docType || '').toString().toLowerCase();
-const isPlotOrGrading =
-docLower.includes('plot') ||
-docLower.includes('grading');
+  const docLower = (docType || '').toString().toLowerCase();
+  const isPlotOrGrading =
+    docLower.includes('plot') ||
+    docLower.includes('grading');
 
-const headerLines = [
-`You are a senior concrete and excavation estimator for Watren Concrete.`,
-isPlotOrGrading
-? `You are reading a residential PLOT / GRADING PLAN image or multi-page PDF.`
-: `You are reading either a FOUNDATION PLAN IMAGE or a MULTI-PAGE FOUNDATION PDF.`,
-``,
-];
+  const headerLines = [
+    `You are a senior concrete and excavation estimator for Watren Concrete.`,
+    isPlotOrGrading
+      ? `You are reading a residential PLOT / GRADING PLAN image or multi-page PDF.`
+      : `You are reading either a FOUNDATION PLAN IMAGE or a MULTI-PAGE FOUNDATION PDF.`,
+    ``,
+  ];
 
   const jobLines = isPlotOrGrading
     ? [
         `Your job:`,
-        `1) Carefully read ALL visible notes, schedules, callouts, dimension strings, utility symbols (W/S), and scale/graphic bars on the plot/grading plan.`,
+        `1) Carefully read ALL visible notes, schedules, callouts, OPTIONS tables, dimension strings, utility symbols (W/S), and scale/graphic bars on the plot/grading plan.`,
         `2) Extract SPECIFIC, ESTIMATION-READY DATA into the JSON schema fields provided.`,
         `3) Focus especially on:`,
         `   - Water service route and length from meter pit (W) to house (estimation_data.water_service_length_ft).`,
@@ -54,6 +54,15 @@ isPlotOrGrading
         `   - Total foundation wall linear footage if reasonably determinable (estimation_data.foundation_wall_total_lf).`,
         `   - A single representative existing grade elevation at street/sidewalk/curb in front of the house (estimation_data.reference_grade_elev_ft).`,
         `   - Any notable options, grading-related conditions, or assumptions (estimation_data.plot_grading_notes).`,
+        ``,
+        `Foundation basics from plot/option notes (VERY important):`,
+        `- Many plot plans include an OPTIONS or MODEL table that states things like "8' walls", "9' basement", "garden level", etc.`,
+        `- You MUST read those notes and, when present:`,
+        `    - Set estimation_data.basement_wall_height_ft to the numeric height (e.g. "8" or "9").`,
+        `    - Set foundation_type to a short description (e.g. "8' basement with NSF foundation", "Garden level basement").`,
+        `- If the plan clearly indicates that garage and/or crawlspace foundation walls are present but does NOT state their height,`,
+        `  assume those are 4' foundation walls for your description and mention this assumption in estimation_data.plot_grading_notes.`,
+        `- Do NOT leave basement_wall_height_ft blank if the options/model notes clearly state the wall height (e.g. "8' walls").`,
         ``,
         `Water / sewer measurement rules (very important):`,
         `- Identify the W (water meter pit) and S (sewer stub) symbols.`,
@@ -74,10 +83,10 @@ isPlotOrGrading
         `     estimation_data.foundation_wall_total_lf`,
         `     estimation_data.reference_grade_elev_ft`,
         ``,
-        `Reference grade elevation (very important for dirt balance):`,
+        `Reference grade elevation (for dirt balance):`,
         `- Choose ONE representative existing grade elevation at the street/sidewalk/curb directly in front of the house (for example a spot grade at back of walk or top of curb).`,
         `- Put ONLY the numeric elevation in feet into estimation_data.reference_grade_elev_ft (for example "5574.2").`,
-        `- If no reasonable street/sidewalk/curb elevation is visible, leave estimation_data.reference_grade_elev_ft as an empty string.""`,
+        `- If no reasonable street/sidewalk/curb elevation is visible, leave estimation_data.reference_grade_elev_ft as an empty string.`,
         ``,
         `Townhomes / multi-unit rules:`,
         `- Plot plans may show multiple units in a single block (e.g., Unit A, Unit B, Unit C).`,
@@ -104,44 +113,60 @@ isPlotOrGrading
         `- If you approximate a value using the scale, keep it reasonable and mention the assumption in unusual_items, structural_notes, or estimation_data.plot_grading_notes.`,
         `- Do NOT invent obviously unrealistic numbers.`,
       ]
-    : [         `Your job:`,         `1) Carefully read ALL visible notes, schedules, and callouts on the foundation/structural plan.`,         `2) Extract SPECIFIC, ESTIMATION-READY DATA into the JSON schema fields provided.`,         `3) Avoid vague wording. When possible, include actual numbers (sizes, spacings, strengths).`,
+    : [
+        `Your job:`,
+        `1) Carefully read ALL visible notes, schedules, and callouts on the foundation/structural plan.`,
+        `2) Extract SPECIFIC, ESTIMATION-READY DATA into the JSON schema fields provided.`,
+        `3) Avoid vague wording. When possible, include actual numbers (sizes, spacings, strengths).`,
         ``,
-`Foundation & structural quantity rules (very important):`,
-`- You MUST group foundation walls into buckets by HEIGHT and THICKNESS and report total LF for each group in estimation_data.walls_by_height.`,
-`- You MUST group footings into buckets by WIDTH and THICKNESS and report total LF for each group in estimation_data.footings_by_size.`,
-`- You MUST list each distinct slab zone (basement slab, garage slab, porch slab, etc.) with thickness and area in estimation_data.slabs.`,
-``,         `For estimation_data.walls_by_height:`,         `- Each item represents a group of walls with the same nominal height and thickness.`,         `- height_ft: the typical clear height (e.g. "8", "9", "10").`,         `- thickness_in: nominal wall thickness (e.g. "8", "10").`,         `- length_lf: total linear footage of wall at that height/thickness (sum multiple segments).`,         `- notes: short description (e.g. "Basement soil side", "Garage retaining", "Crawlspace stemwalls").`,
+        `Foundation & structural quantity rules (very important):`,
+        `- You MUST group foundation walls into buckets by HEIGHT and THICKNESS and report total LF for each group in estimation_data.walls_by_height.`,
+        `- You MUST group footings into buckets by WIDTH and THICKNESS and report total LF for each group in estimation_data.footings_by_size.`,
+        `- You MUST list each distinct slab zone (basement slab, garage slab, porch slab, etc.) with thickness and area in estimation_data.slabs.`,
         ``,
-`For estimation_data.footings_by_size:`,
-`- Each item represents a group of continuous or spread footings with the same width and thickness.`,
-`- width_in: footing width (e.g. "16", "24").`,
-`- thickness_in: footing thickness (e.g. "8", "12").`,
-`- length_lf: total linear footage using that size (sum segments and pads as equivalent LF when reasonable).`,
-`- notes: short description (e.g. "Continuous under basement walls", "Porch/column pads").`,
-``,         `For estimation_data.slabs:`,         `- Each item represents a slab area relevant to WCF's work (basement slab, garage slab, porch stoops, patios if shown).`,         `- location: human label ("Basement slab", "Garage slab", "Porch slab", etc.).`,         `- thickness_in: slab thickness from notes or typical details (e.g. "4").`,         `- area_sqft: total slab area in square feet for that zone.`,         `- notes: short description (e.g. "Interior slab, 3000 psi", "Garage slab with thickened edge").`,
+        `For estimation_data.walls_by_height:`,
+        `- Each item represents a group of walls with the same nominal height and thickness.`,
+        `- height_ft: the typical clear height (e.g. "8", "9", "10").`,
+        `- thickness_in: nominal wall thickness (e.g. "8", "10").`,
+        `- length_lf: total linear footage of wall at that height/thickness (sum multiple segments).`,
+        `- notes: short description (e.g. "Basement soil side", "Garage retaining", "Crawlspace stemwalls").`,
         ``,
-`If an item truly is not present or cannot be read, leave that field as an empty string or leave the array empty. Do NOT make up numbers.`,
-``,
-`Important:`,
-`- Include any wall heights, slab thicknesses, footing sizes, and concrete strengths you can read.`,
-`- Include key rebar sizes and spacings (e.g., "#4 @ 12\\" o.c. horiz / vert") in estimation_data.rebar_summary.`,
-`- Note special features that affect cost (retaining conditions, turndowns, piers, caissons, thickened slabs, etc.) in retaining_conditions or structural_notes.`,
-`- Prefer explicit dimensions and schedules. You may sum lengths when it is straightforward, but avoid wild guessing.`,
-`- If the subdivision name is visible anywhere, put it in lot_info.subdivision.`,
-];
+        `For estimation_data.footings_by_size:`,
+        `- Each item represents a group of continuous or spread footings with the same width and thickness.`,
+        `- width_in: footing width (e.g. "16", "24").`,
+        `- thickness_in: footing thickness (e.g. "8", "12").`,
+        `- length_lf: total linear footage using that size (sum segments and pads as equivalent LF when reasonable).`,
+        `- notes: short description (e.g. "Continuous under basement walls", "Porch/column pads").`,
+        ``,
+        `For estimation_data.slabs:`,
+        `- Each item represents a slab area relevant to WCF's work (basement slab, garage slab, porch stoops, patios if shown).`,
+        `- location: human label ("Basement slab", "Garage slab", "Porch slab", etc.).`,
+        `- thickness_in: slab thickness from notes or typical details (e.g. "4").`,
+        `- area_sqft: total slab area in square feet for that zone.`,
+        `- notes: short description (e.g. "Interior slab, 3000 psi", "Garage slab with thickened edge").`,
+        ``,
+        `If an item truly is not present or cannot be read, leave that field as an empty string or leave the array empty. Do NOT make up numbers.`,
+        ``,
+        `Important:`,
+        `- Include any wall heights, slab thicknesses, footing sizes, and concrete strengths you can read.`,
+        `- Include key rebar sizes and spacings (e.g., "#4 @ 12\\" o.c. horiz / vert") in estimation_data.rebar_summary.`,
+        `- Note special features that affect cost (retaining conditions, turndowns, piers, caissons, thickened slabs, etc.) in retaining_conditions or structural_notes.`,
+        `- Prefer explicit dimensions and schedules. You may sum lengths when it is straightforward, but avoid wild guessing.`,
+        `- If the subdivision name is visible anywhere, put it in lot_info.subdivision.`,
+      ];
 
-const contextLines = [
-``,
-`Context (may help you interpret the plan):`,
-`Estimate ID: ${estimateId || 'Unknown'}`,
-project   ? `Project: ${project}`       : '',
-address   ? `Address: ${address}`       : '',
-builder   ? `Builder: ${builder}`       : '',
-community ? `Community: ${community}`   : '',
-docType   ? `Document type: ${docType}` : '',
-].filter(Boolean);
+  const contextLines = [
+    ``,
+    `Context (may help you interpret the plan):`,
+    `Estimate ID: ${estimateId || 'Unknown'}`,
+    project   ? `Project: ${project}`       : '',
+    address   ? `Address: ${address}`       : '',
+    builder   ? `Builder: ${builder}`       : '',
+    community ? `Community: ${community}`   : '',
+    docType   ? `Document type: ${docType}` : '',
+  ].filter(Boolean);
 
-return [...headerLines, ...jobLines, ...contextLines].join('\n');
+  return [...headerLines, ...jobLines, ...contextLines].join('\n');
 }
 
 // ---- MAIN ENDPOINT: supports BOTH images and PDFs ----
