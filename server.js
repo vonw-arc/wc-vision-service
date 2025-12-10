@@ -240,7 +240,7 @@ app.post('/analyze-plan', async (req, res) => {
 
               structural_notes: { type: 'string' },
 
-              estimation_data: {
+                            estimation_data: {
                 type: 'object',
                 properties: {
                   // --- Existing scalar fields ---
@@ -259,6 +259,7 @@ app.post('/analyze-plan', async (req, res) => {
                   retaining_conditions:       { type: 'string' },
                   rebar_summary:              { type: 'string' },
 
+                  // Plot / grading scalar fields
                   water_service_length_ft:     { type: 'string' },
                   water_service_length_method: { type: 'string' },
                   sewer_service_length_ft:     { type: 'string' },
@@ -269,9 +270,11 @@ app.post('/analyze-plan', async (req, res) => {
                   top_of_foundation_elev_ft:   { type: 'string' },
                   foundation_wall_total_lf:    { type: 'string' },
                   plot_grading_notes:          { type: 'string' },
-		  reference_grade_elev_ft:     { type: 'string' },
 
-                  // --- NEW arrays ---
+                  // NEW: representative existing grade at street/sidewalk/curb
+                  reference_grade_elev_ft:     { type: 'string' },
+
+                  // --- Arrays for structural quantities ---
 
                   // Groups of walls by height & thickness
                   walls_by_height: {
@@ -295,10 +298,10 @@ app.post('/analyze-plan', async (req, res) => {
                     items: {
                       type: 'object',
                       properties: {
-                        width_in:    { type: 'string' }, // e.g. "16", "24"
-                        thickness_in:{ type: 'string' }, // e.g. "8", "12"
-                        length_lf:   { type: 'string' }, // total LF for this group
-                        notes:       { type: 'string' }, // e.g. "Continuous under basement walls"
+                        width_in:     { type: 'string' }, // e.g. "16", "24"
+                        thickness_in: { type: 'string' }, // e.g. "8", "12"
+                        length_lf:    { type: 'string' }, // total LF for this group
+                        notes:        { type: 'string' }, // e.g. "Continuous under basement walls"
                       },
                       required: ['width_in', 'thickness_in', 'length_lf', 'notes'],
                       additionalProperties: false,
@@ -338,6 +341,7 @@ app.post('/analyze-plan', async (req, res) => {
                   'driveway_sqft',
                   'retaining_conditions',
                   'rebar_summary',
+
                   'water_service_length_ft',
                   'water_service_length_method',
                   'sewer_service_length_ft',
@@ -348,13 +352,15 @@ app.post('/analyze-plan', async (req, res) => {
                   'top_of_foundation_elev_ft',
                   'foundation_wall_total_lf',
                   'plot_grading_notes',
-                  'walls_by_height',      // 👈 added
-                  'footings_by_size',     // 👈 added
-                  'slabs'                 // 👈 added
-		  'reference_grade_elev_ft',
+
+                  'reference_grade_elev_ft',
+                  'walls_by_height',
+                  'footings_by_size',
+                  'slabs',
                 ],
                 additionalProperties: false,
               },
+
 
               unusual_items: {
                 type: 'array',
