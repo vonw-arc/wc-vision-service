@@ -265,10 +265,10 @@ app.post('/analyze-plan', async (req, res) => {
 
               structural_notes: { type: 'string' },
 
-                            estimation_data: {
+               estimation_data: {
                 type: 'object',
                 properties: {
-                  // --- Existing scalar fields ---
+                  // --- Scalar fields shared by plot + structural ---
                   basement_wall_height_ft:    { type: 'string' },
                   basement_wall_thickness_in: { type: 'string' },
                   basement_perimeter_ft:      { type: 'string' },
@@ -284,7 +284,6 @@ app.post('/analyze-plan', async (req, res) => {
                   retaining_conditions:       { type: 'string' },
                   rebar_summary:              { type: 'string' },
 
-                  // Plot / grading scalar fields
                   water_service_length_ft:     { type: 'string' },
                   water_service_length_method: { type: 'string' },
                   sewer_service_length_ft:     { type: 'string' },
@@ -296,10 +295,10 @@ app.post('/analyze-plan', async (req, res) => {
                   foundation_wall_total_lf:    { type: 'string' },
                   plot_grading_notes:          { type: 'string' },
 
-                  // NEW: representative existing grade at street/sidewalk/curb
+                  // NEW: reference grade elevation at street/sidewalk/curb
                   reference_grade_elev_ft:     { type: 'string' },
 
-                  // --- Arrays for structural quantities ---
+                  // --- NEW arrays (can be empty when unknown) ---
 
                   // Groups of walls by height & thickness
                   walls_by_height: {
@@ -323,10 +322,10 @@ app.post('/analyze-plan', async (req, res) => {
                     items: {
                       type: 'object',
                       properties: {
-                        width_in:     { type: 'string' }, // e.g. "16", "24"
-                        thickness_in: { type: 'string' }, // e.g. "8", "12"
-                        length_lf:    { type: 'string' }, // total LF for this group
-                        notes:        { type: 'string' }, // e.g. "Continuous under basement walls"
+                        width_in:    { type: 'string' }, // e.g. "16", "24"
+                        thickness_in:{ type: 'string' }, // e.g. "8", "12"
+                        length_lf:   { type: 'string' }, // total LF for this group
+                        notes:       { type: 'string' }, // e.g. "Continuous under basement walls"
                       },
                       required: ['width_in', 'thickness_in', 'length_lf', 'notes'],
                       additionalProperties: false,
@@ -350,7 +349,8 @@ app.post('/analyze-plan', async (req, res) => {
                   },
                 },
 
-                // strict mode: MUST list *all* keys from properties here
+                // strict mode: MUST list *all* keys from properties here.
+                // The model can still use "" or [] when it genuinely can't read a value.
                 required: [
                   'basement_wall_height_ft',
                   'basement_wall_thickness_in',
@@ -366,7 +366,6 @@ app.post('/analyze-plan', async (req, res) => {
                   'driveway_sqft',
                   'retaining_conditions',
                   'rebar_summary',
-
                   'water_service_length_ft',
                   'water_service_length_method',
                   'sewer_service_length_ft',
@@ -377,7 +376,6 @@ app.post('/analyze-plan', async (req, res) => {
                   'top_of_foundation_elev_ft',
                   'foundation_wall_total_lf',
                   'plot_grading_notes',
-
                   'reference_grade_elev_ft',
                   'walls_by_height',
                   'footings_by_size',
