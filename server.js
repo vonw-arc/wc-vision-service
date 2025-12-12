@@ -36,6 +36,8 @@ async function rasterizePdfToImages(pdfUrl, dpi = 300) {
     const canvas = createCanvas(viewport.width, viewport.height);
     const ctx = canvas.getContext('2d');
 
+    ctx.imageSmoothingEnabled = false;
+
     await page.render({
       canvasContext: ctx,
       viewport,
