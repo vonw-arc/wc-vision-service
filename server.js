@@ -12,9 +12,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url
 ).toString();
 
-// ------------------------------------------------------------
-// PDF → High-DPI image rasterization helper (Render-safe)
-// ------------------------------------------------------------
 async function rasterizePdfToImages(pdfUrl, dpi = 300) {
   const res = await fetch(pdfUrl);
   if (!res.ok) {
@@ -22,11 +19,14 @@ async function rasterizePdfToImages(pdfUrl, dpi = 300) {
   }
 
   const pdfBuffer = await res.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: pdfBuffer }).promise;
+  const pdfData = new Uint8Array(pdfBuffer);
+
+  const pdf = await pdfjsLib.getDocument({
+    data: pdfData,
+    disableWorker: true, // ✅ Render-safe
+  }).promise;
 
   const images = [];
-
-  // PDF default is 72 DPI
   const scale = dpi / 72;
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
@@ -43,8 +43,7 @@ async function rasterizePdfToImages(pdfUrl, dpi = 300) {
       viewport,
     }).promise;
 
-    const pngBase64 = canvas.toBuffer('image/png').toString('base64');
-    images.push(`data:image/png;base64,${pngBase64}`);
+    images.push(`data:image/png;base64,${canvas.toBuffer('image/png').toString('base64')}`);
   }
 
   return images;
