@@ -3,6 +3,45 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import OpenAI from 'openai';
+import fetch from 'node-fetch';
+import { createCanvas } from 'canvas';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.js';
+
+// ------------------------------------------------------------
+// PDF → High-DPI image rasterization helper (Render-safe)
+// ------------------------------------------------------------
+async function rasterizePdfToImages(pdfUrl, dpi = 300) {
+  const res = await fetch(pdfUrl);
+  if (!res.ok) {
+    throw new Error(`Failed to download PDF: ${res.status}`);
+  }
+
+  const pdfBuffer = await res.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: pdfBuffer }).promise;
+
+  const images = [];
+
+  // PDF default is 72 DPI
+  const scale = dpi / 72;
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({ scale });
+
+    const canvas = createCanvas(viewport.width, viewport.height);
+    const ctx = canvas.getContext('2d');
+
+    await page.render({
+      canvasContext: ctx,
+      viewport,
+    }).promise;
+
+    const pngBase64 = canvas.toBuffer('image/png').toString('base64');
+    images.push(`data:image/png;base64,${pngBase64}`);
+  }
+
+  return images;
+}
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -64,6 +103,11 @@ function buildPrompt(extraContext = {}, estimateId) {
         `  assume those are 4' foundation walls for your description and mention this assumption in estimation_data.plot_grading_notes.`,
         `- Do NOT leave basement_wall_height_ft blank if the options/model notes clearly state the wall height (e.g. "8' walls").`,
         ``,
+	`Elevation shorthand rule (critical):`,
+	`- Many plot plans show spot grades as shorthand like "84.8" where the leading digits are omitted for legibility.`,
+	`- If Top of Foundation is given as a full elevation (e.g., 4787.8) and a spot grade is shown as a shorter number (e.g., 84.8), you MUST assume the spot grade shares the same leading digits as the TOF. Example: TOF 4787.8 and spot grade 84.8 → interpret spot grade as 4784.8.`,
+	`- Always output top_of_foundation_elev_ft and reference_grade_elev_ft as FULL elevations in feet (e.g., 4784.8), not shorthand.`,
+	`- If you are not confident, leave reference_grade_elev_ft blank and explain why in plot_grading_notes.`,
         `Water / sewer measurement rules (very important):`,
         `- Identify the W (water meter pit) and S (sewer stub) symbols.`,
         `- If an explicit utility line is drawn, use that route to determine the service path.`,
@@ -218,18 +262,22 @@ app.post('/analyze-plan', async (req, res) => {
     ];
 
     if (isPdf) {
-      // PDF: Responses API pulls the PDF directly
-      content.push({
-        type: 'input_file',
-        file_url: url,
-      });
-    } else {
-      // Image: normal vision path
-      content.push({
-        type: 'input_image',
-        image_url: url,
-      });
-    }
+  // 🔥 Rasterize PDF to high-DPI images
+  const pageImages = await rasterizePdfToImages(url, 300);
+
+  pageImages.forEach((img) => {
+    content.push({
+      type: 'input_image',
+      image_url: img,
+    });
+  });
+} else {
+  // Regular image path
+  content.push({
+    type: 'input_image',
+    image_url: url,
+  });
+}
 
     const response = await client.responses.create({
       model: 'gpt-5.2',
