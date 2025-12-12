@@ -5,7 +5,12 @@ import cors from 'cors';
 import OpenAI from 'openai';
 import fetch from 'node-fetch';
 import { createCanvas } from 'canvas';
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.js';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/legacy/build/pdf.worker.mjs',
+  import.meta.url
+).toString();
 
 // ------------------------------------------------------------
 // PDF → High-DPI image rasterization helper (Render-safe)
