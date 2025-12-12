@@ -7,10 +7,6 @@ import fetch from 'node-fetch';
 import { createCanvas } from 'canvas';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 
-// ✅ Render-safe: force pdf.js to run WITHOUT workers in Node
-pdfjsLib.GlobalWorkerOptions.workerSrc = null;
-pdfjsLib.GlobalWorkerOptions.disableWorker = true;
-
 async function rasterizePdfToImages(pdfUrl, dpi = 300) {
   const res = await fetch(pdfUrl);
   if (!res.ok) {
@@ -63,7 +59,7 @@ console.warn('Warning: OPENAI_API_KEY is not set. Vision calls will fail until y
 const client = new OpenAI();
 
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
 
 function buildPrompt(extraContext = {}, estimateId) {
   const {
