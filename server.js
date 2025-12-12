@@ -4,9 +4,6 @@ import express from 'express';
 import cors from 'cors';
 import OpenAI from 'openai';
 import fetch from 'node-fetch';
-import { createCanvas } from 'canvas';
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
-
 import { createCanvas, Image as CanvasImage } from 'canvas';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 
