@@ -7,10 +7,9 @@ import fetch from 'node-fetch';
 import { createCanvas } from 'canvas';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/legacy/build/pdf.worker.mjs',
-  import.meta.url
-).toString();
+// ✅ Render-safe: force pdf.js to run WITHOUT workers in Node
+pdfjsLib.GlobalWorkerOptions.workerSrc = null;
+pdfjsLib.GlobalWorkerOptions.disableWorker = true;
 
 async function rasterizePdfToImages(pdfUrl, dpi = 300) {
   const res = await fetch(pdfUrl);
@@ -29,22 +28,26 @@ async function rasterizePdfToImages(pdfUrl, dpi = 300) {
   const images = [];
   const scale = dpi / 72;
 
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
-    const viewport = page.getViewport({ scale });
+  const MAX_PAGES = 3;
+  const pagesToRender = Math.min(pdf.numPages, MAX_PAGES);
 
-    const canvas = createCanvas(viewport.width, viewport.height);
-    const ctx = canvas.getContext('2d');
+  for (let pageNum = 1; pageNum <= pagesToRender; pageNum++) {
+  const page = await pdf.getPage(pageNum);
+  const viewport = page.getViewport({ scale });
 
-    ctx.imageSmoothingEnabled = false;
+  const canvas = createCanvas(viewport.width, viewport.height);
+  const ctx = canvas.getContext('2d');
 
-    await page.render({
-      canvasContext: ctx,
-      viewport,
-    }).promise;
+  ctx.imageSmoothingEnabled = false;
 
-    images.push(`data:image/png;base64,${canvas.toBuffer('image/png').toString('base64')}`);
-  }
+  await page.render({
+    canvasContext: ctx,
+    viewport,
+  }).promise;
+
+  images.push(`data:image/png;base64,${canvas.toBuffer('image/png').toString('base64')}`);
+}
+
 
   return images;
 }
