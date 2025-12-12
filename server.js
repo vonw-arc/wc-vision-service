@@ -8,9 +8,18 @@ import { createCanvas, Image as CanvasImage } from 'canvas';
 
 // ✅ Register Node-canvas globals BEFORE loading pdf.js
 globalThis.Image = CanvasImage;
-globalThis.ImageData = ImageData;
-globalThis.DOMMatrix = DOMMatrix;
-globalThis.Path2D = Path2D;
+
+// Some Render/canvas builds don't export ImageData/DOMMatrix/Path2D.
+// Only set them if they exist so we don't crash on boot.
+try {
+  const canvasMod = await import('canvas');
+
+  if (canvasMod.ImageData) globalThis.ImageData = canvasMod.ImageData;
+  if (canvasMod.DOMMatrix) globalThis.DOMMatrix = canvasMod.DOMMatrix;
+  if (canvasMod.Path2D) globalThis.Path2D = canvasMod.Path2D;
+} catch (e) {
+  // If this fails, we still have Image which is the big one.
+}
 
 // ✅ Lazy-load pdf.js after globals exist (ESM-safe)
 let _pdfjsLib;
