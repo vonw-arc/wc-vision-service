@@ -233,6 +233,8 @@ app.post('/analyze-plan', async (req, res) => {
 
     const response = await client.responses.create({
       model: 'gpt-5.2',
+      temperature: 0,
+      top_p: 1,
       input: [
         {
           role: 'user',
