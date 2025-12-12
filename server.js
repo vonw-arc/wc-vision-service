@@ -5,31 +5,24 @@ import cors from 'cors';
 import OpenAI from 'openai';
 import fetch from 'node-fetch';
 import { createCanvas, Image as CanvasImage } from 'canvas';
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 
-// Some pdf.js builds expect a global Image implementation when rasterizing.
+// ✅ Register Node-canvas globals BEFORE loading pdf.js
 globalThis.Image = CanvasImage;
+globalThis.ImageData = ImageData;
+globalThis.DOMMatrix = DOMMatrix;
+globalThis.Path2D = Path2D;
 
-// Node canvasFactory recommended pattern for pdf.js in non-browser environments
-const canvasFactory = {
-  create(width, height) {
-    const canvas = createCanvas(width, height);
-    const context = canvas.getContext('2d');
-    return { canvas, context };
-  },
-  reset(canvasAndContext, width, height) {
-    canvasAndContext.canvas.width = width;
-    canvasAndContext.canvas.height = height;
-  },
-  destroy(canvasAndContext) {
-    canvasAndContext.canvas.width = 0;
-    canvasAndContext.canvas.height = 0;
-    canvasAndContext.canvas = null;
-    canvasAndContext.context = null;
-  },
-};
+// ✅ Lazy-load pdf.js after globals exist (ESM-safe)
+let _pdfjsLib;
+async function getPdfjs() {
+  if (_pdfjsLib) return _pdfjsLib;
+  _pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  return _pdfjsLib;
+}
 
-async function rasterizePdfToImages(pdfUrl, dpi = 300, maxPages = 3) {
+async function rasterizePdfToImages(pdfUrl, dpi = 300) {
+  const pdfjsLib = await getPdfjs();
+
   const res = await fetch(pdfUrl);
   if (!res.ok) throw new Error(`Failed to download PDF: ${res.status}`);
 
@@ -38,33 +31,31 @@ async function rasterizePdfToImages(pdfUrl, dpi = 300, maxPages = 3) {
 
   const pdf = await pdfjsLib.getDocument({
     data: pdfData,
-    disableWorker: true, // ✅ required on Render
+    disableWorker: true, // ✅ Node/Render-safe
   }).promise;
 
-  const images = [];
-  const scale = dpi / 72; // PDF “user space” is 72dpi
+  const MAX_PAGES = 3;
+  const pagesToRender = Math.min(pdf.numPages, MAX_PAGES);
 
-  const pagesToRender = Math.min(pdf.numPages, maxPages);
+  const images = [];
+  const scale = dpi / 72;
 
   for (let pageNum = 1; pageNum <= pagesToRender; pageNum++) {
     const page = await pdf.getPage(pageNum);
     const viewport = page.getViewport({ scale });
 
-    // IMPORTANT: force integer pixel dimensions
-    const width = Math.ceil(viewport.width);
-    const height = Math.ceil(viewport.height);
+    // createCanvas expects ints
+    const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+    const ctx = canvas.getContext('2d');
 
-    const { canvas, context } = canvasFactory.create(width, height);
-    context.imageSmoothingEnabled = false;
+    ctx.imageSmoothingEnabled = false;
 
     await page.render({
-      canvasContext: context,
+      canvasContext: ctx,
       viewport,
-      canvasFactory,
     }).promise;
 
     images.push(`data:image/png;base64,${canvas.toBuffer('image/png').toString('base64')}`);
-    canvasFactory.destroy({ canvas, context });
   }
 
   return images;
