@@ -7,43 +7,68 @@ import fetch from 'node-fetch';
 import { createCanvas } from 'canvas';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 
-async function rasterizePdfToImages(pdfUrl, dpi = 300) {
+import { createCanvas, Image as CanvasImage } from 'canvas';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+
+// Some pdf.js builds expect a global Image implementation when rasterizing.
+globalThis.Image = CanvasImage;
+
+// Node canvasFactory recommended pattern for pdf.js in non-browser environments
+const canvasFactory = {
+  create(width, height) {
+    const canvas = createCanvas(width, height);
+    const context = canvas.getContext('2d');
+    return { canvas, context };
+  },
+  reset(canvasAndContext, width, height) {
+    canvasAndContext.canvas.width = width;
+    canvasAndContext.canvas.height = height;
+  },
+  destroy(canvasAndContext) {
+    canvasAndContext.canvas.width = 0;
+    canvasAndContext.canvas.height = 0;
+    canvasAndContext.canvas = null;
+    canvasAndContext.context = null;
+  },
+};
+
+async function rasterizePdfToImages(pdfUrl, dpi = 300, maxPages = 3) {
   const res = await fetch(pdfUrl);
-  if (!res.ok) {
-    throw new Error(`Failed to download PDF: ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`Failed to download PDF: ${res.status}`);
 
   const pdfBuffer = await res.arrayBuffer();
   const pdfData = new Uint8Array(pdfBuffer);
 
   const pdf = await pdfjsLib.getDocument({
     data: pdfData,
-    disableWorker: true, // ✅ Render-safe
+    disableWorker: true, // ✅ required on Render
   }).promise;
 
   const images = [];
-  const scale = dpi / 72;
+  const scale = dpi / 72; // PDF “user space” is 72dpi
 
-  const MAX_PAGES = 3;
-  const pagesToRender = Math.min(pdf.numPages, MAX_PAGES);
+  const pagesToRender = Math.min(pdf.numPages, maxPages);
 
   for (let pageNum = 1; pageNum <= pagesToRender; pageNum++) {
-  const page = await pdf.getPage(pageNum);
-  const viewport = page.getViewport({ scale });
+    const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({ scale });
 
-  const canvas = createCanvas(viewport.width, viewport.height);
-  const ctx = canvas.getContext('2d');
+    // IMPORTANT: force integer pixel dimensions
+    const width = Math.ceil(viewport.width);
+    const height = Math.ceil(viewport.height);
 
-  ctx.imageSmoothingEnabled = false;
+    const { canvas, context } = canvasFactory.create(width, height);
+    context.imageSmoothingEnabled = false;
 
-  await page.render({
-    canvasContext: ctx,
-    viewport,
-  }).promise;
+    await page.render({
+      canvasContext: context,
+      viewport,
+      canvasFactory,
+    }).promise;
 
-  images.push(`data:image/png;base64,${canvas.toBuffer('image/png').toString('base64')}`);
-}
-
+    images.push(`data:image/png;base64,${canvas.toBuffer('image/png').toString('base64')}`);
+    canvasFactory.destroy({ canvas, context });
+  }
 
   return images;
 }
@@ -268,7 +293,7 @@ app.post('/analyze-plan', async (req, res) => {
 
     if (isPdf) {
   // 🔥 Rasterize PDF to high-DPI images
-  const pageImages = await rasterizePdfToImages(url, 300);
+  const pageImages = await rasterizePdfToImages(url, 350, 3);
 
   pageImages.forEach((img) => {
     content.push({
