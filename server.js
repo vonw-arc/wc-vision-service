@@ -149,13 +149,17 @@ async function downloadToTempFile(url, ext = '.pdf') {
   }
 }
 
-async function rasterizePdfToImagesPoppler(pdfUrl, dpi = DPI, maxPages = MAX_PAGES) {
+async function rasterizePdfToImagesPoppler(pdfUrl, {
+  dpi = DPI,
+  maxPages = MAX_PAGES,
+  maxPixels = 10_000_000,   // clamp output size (prevents OOM/502)
+} = {}) {
   // Ensure pdftoppm exists
   try {
     await execFileAsync('pdftoppm', ['-h']);
   } catch (e) {
     throw new Error(
-      'pdftoppm not available. Add Poppler to Render service (see instructions).'
+      'pdftoppm not available. Add Poppler to the service environment.'
     );
   }
 
@@ -163,11 +167,35 @@ async function rasterizePdfToImagesPoppler(pdfUrl, dpi = DPI, maxPages = MAX_PAG
   const outPrefix = path.join(tmpDir, 'page');
 
   try {
-    // Render ONLY first N pages: -f 1 -l maxPages
-    // Output PNGs: page-1.png, page-2.png, etc.
+    // 1) Ask poppler what size page 1 would be at this DPI (so we can clamp)
+    // pdfinfo is included with poppler-utils
+    let safeDpi = dpi;
+    try {
+      const { stdout } = await execFileAsync('pdfinfo', [filePath], { maxBuffer: 2 * 1024 * 1024 });
+      // Look for: "Page size:      612 x 792 pts"
+      const m = stdout.match(/Page\s+size:\s+([\d.]+)\s+x\s+([\d.]+)\s+pts/i);
+      if (m) {
+        const ptsW = parseFloat(m[1]);
+        const ptsH = parseFloat(m[2]);
+
+        // pixels = (pts/72*dpi) * (pts/72*dpi)
+        const pxW = (ptsW / 72) * dpi;
+        const pxH = (ptsH / 72) * dpi;
+        const pixels = pxW * pxH;
+
+        if (pixels > maxPixels) {
+          const factor = Math.sqrt(maxPixels / pixels);
+          safeDpi = Math.max(100, Math.floor(dpi * factor)); // keep sane minimum
+        }
+      }
+    } catch {
+      // If pdfinfo isn't available for some reason, just keep dpi.
+    }
+
+    // 2) Rasterize ONLY first N pages at safeDpi
     const args = [
       '-png',
-      '-r', String(dpi),
+      '-r', String(safeDpi),
       '-f', '1',
       '-l', String(maxPages),
       filePath,
@@ -176,7 +204,7 @@ async function rasterizePdfToImagesPoppler(pdfUrl, dpi = DPI, maxPages = MAX_PAG
 
     await execFileAsync('pdftoppm', args, { maxBuffer: 50 * 1024 * 1024 });
 
-    // pdftoppm output naming: `${outPrefix}-1.png`
+    // 3) Read output images
     const images = [];
     for (let i = 1; i <= maxPages; i++) {
       const p = `${outPrefix}-${i}.png`;
@@ -184,7 +212,7 @@ async function rasterizePdfToImagesPoppler(pdfUrl, dpi = DPI, maxPages = MAX_PAG
         const imgBuf = await fs.readFile(p);
         images.push(`data:image/png;base64,${imgBuf.toString('base64')}`);
       } catch {
-        break; // stop when pages stop existing
+        break;
       }
     }
 
@@ -194,7 +222,6 @@ async function rasterizePdfToImagesPoppler(pdfUrl, dpi = DPI, maxPages = MAX_PAG
 
     return images;
   } finally {
-    // Cleanup temp dir
     try { await fs.rm(tmpDir, { recursive: true, force: true }); } catch {}
   }
 }
@@ -233,7 +260,18 @@ app.post('/analyze-plan', async (req, res) => {
     ];
 
     if (isPdf) {
-      const pageImages = await rasterizePdfToImagesPoppler(url, DPI, MAX_PAGES);
+      const docLower = String(extraContext?.docType || '').toLowerCase();
+  const isPlot = docLower.includes('plot') || docLower.includes('grading');
+
+  // Plot plans benefit from higher DPI; structural plans blow up fast
+  const dpi = isPlot ? 300 : 200;
+
+  const pageImages = await rasterizePdfToImagesPoppler(url, {
+  dpi,
+  maxPages: 3,
+  maxPixels: isPlot ? 14_000_000 : 8_000_000,
+  });
+
       pageImages.forEach((img) => content.push({ type: 'input_image', image_url: img }));
     } else {
       content.push({ type: 'input_image', image_url: url });
