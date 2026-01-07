@@ -179,16 +179,13 @@ async function rasterizePdfToImagesPoppler(pdfUrl, {
     } catch {}
 
     const args = [
-      '-png',
-      '-r', String(safeDpi),
-      '-aa', 'yes',
-      '-aaVector', 'yes',
-      '-thinLineMode', 'solid',
-      '-f', '1',
-      '-l', String(maxPages),
-      filePath,
-      outPrefix,
-    ];
+  '-png',
+  '-r', String(safeDpi),
+  '-f', '1',
+  '-l', String(maxPages),
+  filePath,
+  outPrefix,
+];
 
     await execFileAsync('pdftoppm', args, { maxBuffer: 500 * 1024 * 1024 });
 
