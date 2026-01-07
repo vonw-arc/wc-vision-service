@@ -28,10 +28,10 @@ app.use(express.json({ limit: '50mb' }));
 /**
  * ========= CONFIG =========
  */
-const MAX_PAGES = 3;     // ✅ hard cap pages
-const DPI = 300;         // 250–350 is a good range
-const PDF_FETCH_TIMEOUT_MS = 60000;
-const MAX_PDF_BYTES = 35 * 1024 * 1024; // 35MB safety (tune if needed)
+const MAX_PAGES = 4;
+const DPI = 600; // real blueprint clarity
+const PDF_FETCH_TIMEOUT_MS = 120000;
+const MAX_PDF_BYTES = 85 * 1024 * 1024; // civil PDFs allowed
 
 /**
  * ========= PROMPT BUILDER (yours, unchanged) =========
@@ -152,7 +152,7 @@ async function downloadToTempFile(url, ext = '.pdf') {
 async function rasterizePdfToImagesPoppler(pdfUrl, {
   dpi = DPI,
   maxPages = MAX_PAGES,
-  maxPixels = 10_000_000,   // clamp output size (prevents OOM/502)
+  maxPixels = 90_000_000, // allows true 24x36 @ 600dpi safely
 } = {}) {
   // Ensure pdftoppm exists
   try {
@@ -264,13 +264,13 @@ app.post('/analyze-plan', async (req, res) => {
   const isPlot = docLower.includes('plot') || docLower.includes('grading');
 
   // Plot plans benefit from higher DPI; structural plans blow up fast
-  const dpi = isPlot ? 300 : 200;
+  const dpi = isPlot ? 600 : 300;
 
-  const pageImages = await rasterizePdfToImagesPoppler(url, {
+const pageImages = await rasterizePdfToImagesPoppler(url, {
   dpi,
-  maxPages: 3,
-  maxPixels: isPlot ? 14_000_000 : 8_000_000,
-  });
+  maxPages: isPlot ? 4 : 3,
+  maxPixels: isPlot ? 90_000_000 : 45_000_000,
+});
 
       pageImages.forEach((img) => content.push({ type: 'input_image', image_url: img }));
     } else {
