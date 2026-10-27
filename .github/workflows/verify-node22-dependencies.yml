@@ -1,0 +1,60 @@
+name: Verify Node 22 dependency candidate
+
+on:
+  push:
+    branches: [verify/node22-dependency-fix]
+
+# Public source is fetched anonymously. This job needs no repository token rights.
+permissions: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Fetch validation branch without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --no-tags --single-branch --branch verify/node22-dependency-fix https://github.com/vonw-arc/wc-vision-service.git source
+          git -C source checkout --detach "$GITHUB_SHA"
+      - name: Prepare original and candidate build contexts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p verification/{baseline,candidate,tests,evidence}
+          git -C source archive 43151f7d69f7010f66c772c7265d78e94c120462 | tar -x -C verification/baseline
+          cp -a verification/baseline/. verification/candidate/
+          cp source/package-lock.json verification/candidate/package-lock.json
+          cp source/regression.mjs source/localhost-preload.cjs verification/tests/
+          cmp verification/baseline/server.js verification/candidate/server.js
+          cmp verification/baseline/package.json verification/candidate/package.json
+          cmp verification/baseline/Dockerfile verification/candidate/Dockerfile
+      - name: Build exact production Dockerfile and native dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull --progress=plain -t wc-vision-baseline verification/baseline
+          docker build --pull --progress=plain -t wc-vision-candidate verification/candidate
+          for variant in baseline candidate; do
+            container_id=$(docker create "wc-vision-$variant")
+            docker cp "$container_id:/app/node_modules" "verification/$variant/node_modules"
+            docker rm "$container_id"
+          done
+      - name: Assert Linux Node 22.23.4 and native library startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --entrypoint node wc-vision-candidate -e 'const assert=require("node:assert/strict");assert.equal(process.version,"v22.23.4");assert.equal(process.platform,"linux");assert.equal(process.arch,"x64");const canvas=require("canvas").createCanvas(2,2);assert.ok(canvas.toBuffer("image/png").length>0);console.log(process.version,process.platform,process.arch,"native canvas passed")'
+          docker run --rm --network none --entrypoint pdftoppm wc-vision-candidate -v
+      - name: Run isolated comparison without external networking
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --read-only --tmpfs /tmp -v "$PWD/verification:/verification" --entrypoint node wc-vision-candidate /verification/tests/regression.mjs
+      - name: Validate candidate dependency graph and audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --entrypoint npm wc-vision-candidate ls --all
+          docker run --rm --entrypoint npm wc-vision-candidate audit --omit=dev --json
